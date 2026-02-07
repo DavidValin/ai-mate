@@ -1,4 +1,4 @@
-## ai-mate
+# ai-mate
 
 ai mate is a terminal based audio conversation system between a user and an AI model that runs locally in your machine.
 
@@ -6,7 +6,7 @@ ai mate is a terminal based audio conversation system between a user and an AI m
 - speech to text (stt): whisper.cpp
 - text to speech (tts): OpenTTS
 
-### How it works
+## How it works
 
 `RECORD -> STT -> LLM -> REPLY -> TTS -> PLAYBACK`
 
@@ -20,7 +20,7 @@ ai mate is a terminal based audio conversation system between a user and an AI m
 - You can interrupt the ai agent at any moment by start speaking, this will cause the response and audio to stop and you can continue talking.
 ```
 
-### Installation
+## Installation
 
 Install dependencies:
 
@@ -52,7 +52,7 @@ cargo install --path .
 
 This installs the program called `ai-mate` under `~/.cargo/bin`. Make sure this directory is added to your path, otherwise add it.
 
-### How to use it
+## How to use it
 
 Before starting, make sure ollama and OpenTTS are running:
 
@@ -86,7 +86,7 @@ If you need help:
 ai-mate --help
 ```
 
-### Language support
+## Language support
 
 By default everything run in english (speech recognition and audio playback). The next languages are supported:
 
@@ -125,5 +125,3 @@ zh                  coqui-tts:zh_baker                         mandarin chinese
 
 Feel free to contribute using a PR.
 Have fun o:)
-
-### Language support
