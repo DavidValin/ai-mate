@@ -295,16 +295,19 @@ fn build_input_i16(
         tmp.push(s as f32 / i16::MAX as f32);
       }
 
-      let peak = peak_abs(&tmp);
+      let local_peak = peak_abs(&tmp);
+        if let Ok(mut p) = peak.lock() {
+            *p = local_peak;
+        }
 
-      if peak >= vad_thresh {
+      if local_peak >= vad_thresh {
         last_voice_ms.store(crate::util::now_ms(&start_instant), Ordering::Relaxed);
         ui.speaking.store(true, Ordering::Relaxed);
 
         if !in_speech.swap(true, Ordering::Relaxed) {
           let mut b = utt_buf.lock().unwrap();
           b.clear();
-          crate::log::log("info", &format!("Audio detected (peak: {:.3})", peak));
+          crate::log::log("info", &format!("Audio detected (peak: {:.3})", local_peak));
         }
         {
           let mut b = utt_buf.lock().unwrap();
@@ -392,34 +395,27 @@ fn build_input_u16(
   device.build_input_stream(
     config,
     move |data: &[u16], _| {
-      // record peak for UI
-      let mut tmp = Vec::with_capacity(data.len());
-      for &s in data {
-        let v = s as f32 / u16::MAX as f32;
-        tmp.push(v * 2.0 - 1.0);
-      }
-
-      let peak = peak_abs(&tmp);
+      let local_peak = peak_abs(&data.iter().map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0).collect::<Vec<f32>>());
+        if let Ok(mut p) = peak.lock() {
+            *p = local_peak;
+        }
 
       if stop_all_rx.try_recv().is_ok() {
         return;
       }
 
-      let mut tmp = Vec::with_capacity(data.len());
-      for &s in data {
-        let v = s as f32 / u16::MAX as f32;
-        tmp.push(v * 2.0 - 1.0);
-      }
+      let tmp = data.iter().map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0).collect::<Vec<f32>>();
 
-      if peak >= vad_thresh {
-        ui.speaking.store(false, Ordering::Relaxed);
+      if local_peak >= vad_thresh {
+          last_voice_ms.store(crate::util::now_ms(&start_instant), Ordering::Relaxed);
+          ui.speaking.store(true, Ordering::Relaxed);
         last_voice_ms.store(crate::util::now_ms(&start_instant), Ordering::Relaxed);
         ui.speaking.store(true, Ordering::Relaxed);
 
         if !in_speech.swap(true, Ordering::Relaxed) {
           let mut b = utt_buf.lock().unwrap();
           b.clear();
-          crate::log::log("info", &format!("Audio detected (peak: {:.3})", peak));
+          crate::log::log("info", &format!("Audio detected (peak: {:.3})", local_peak));
         }
         {
           let mut b = utt_buf.lock().unwrap();
