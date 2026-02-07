@@ -8,6 +8,7 @@ homepage = "https://github.com/DavidValin/ai-mate"
 repository = "https://github.com/DavidValin/ai-mate"
 description = "A simple audio ai conversation system"
 license-file = "LICENSE"
+readme = "README.md"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
