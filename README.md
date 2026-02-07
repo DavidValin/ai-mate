@@ -6,6 +6,8 @@ ai mate is a terminal based audio conversation system between a user and an AI m
 - speech to text (stt): whisper.cpp
 - text to speech (tts): OpenTTS
 
+![ai mate screenshot](https://github.com/DavidValin/ai-mate/raw/main/preview.png)
+
 ## How it works
 
 `RECORD -> STT -> LLM -> REPLY -> TTS -> PLAYBACK`

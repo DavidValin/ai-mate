@@ -33,10 +33,21 @@ static START_INSTANT: OnceLock<Instant> = OnceLock::new();
 // ------------------------------------------------------------------
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+  println!(
+        r#"
+ █████╗ ██╗      ███╗   ███╗ █████╗ ████████╗███████╗
+██╔══██╗██║      ████╗ ████║██╔══██╗╚══██╔══╝██╔════╝
+███████║██║█████╗██╔████╔██║███████║   ██║   █████╗  
+██╔══██║██║╚════╝██║╚██╔╝██║██╔══██║   ██║   ██╔══╝  
+██║  ██║██║      ██║ ╚═╝ ██║██║  ██║   ██║   ███████╗
+╚═╝  ╚═╝╚═╝      ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝
+"#
+    );
+
   let _ = START_INSTANT.get_or_init(Instant::now);
 
   let mut args = crate::config::Args::parse();
-crate::log::set_verbose(args.verbose);
+  crate::log::set_verbose(args.verbose);
 
   // Expand computed defaults that can't be expressed as static clap defaults.
   if args.whisper_model_path.trim().is_empty() {
