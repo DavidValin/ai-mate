@@ -1,0 +1,21 @@
+[package]
+name = "ai-mate"
+version = "0.3.0-beta.1"
+edition = "2024"
+
+authors = ["David Valin <hola@davidvalin.com>"]
+homepage = "https://github.com/DavidValin/ai-mate"
+repository = "https://github.com/DavidValin/ai-mate"
+description = "A simple audio ai conversation system"
+license-file = "LICENSE"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+cpal = "0.15"
+crossbeam-channel = "0.5"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+urlencoding = "2"
+hound = "3"
+crossterm = "0.27"

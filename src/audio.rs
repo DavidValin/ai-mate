@@ -1,0 +1,74 @@
+// ------------------------------------------------------------------
+//  Audio processing
+// ------------------------------------------------------------------
+
+
+
+// API
+// ------------------------------------------------------------------
+
+/// Linear interpolation resample of interleaved audio.
+pub fn resample_interleaved_linear(input: &[f32], channels: u16, in_sr: u32, out_sr: u32) -> Vec<f32> {
+  if in_sr == out_sr || input.is_empty() {
+    return input.to_vec();
+  }
+
+  let ch = channels as usize;
+  let frames = input.len() / ch;
+
+  // De-interleave
+  let mut per_ch: Vec<Vec<f32>> = vec![Vec::with_capacity(frames); ch];
+  for f in 0..frames {
+    for c in 0..ch {
+      per_ch[c].push(input[f * ch + c]);
+    }
+  }
+
+  // Resample each channel
+  let mut per_ch_rs: Vec<Vec<f32>> = Vec::with_capacity(ch);
+  for c in 0..ch {
+    per_ch_rs.push(resample_linear(&per_ch[c], in_sr, out_sr));
+  }
+
+  // Re-interleave
+  let out_frames = per_ch_rs[0].len();
+  let mut out = Vec::with_capacity(out_frames * ch);
+  for f in 0..out_frames {
+    for c in 0..ch {
+      out.push(per_ch_rs[c][f]);
+    }
+  }
+
+  out
+}
+
+
+/// Linear interpolation resample of mono audio.
+pub fn resample_linear(input: &[f32], in_sr: u32, out_sr: u32) -> Vec<f32> {
+  if in_sr == out_sr || input.is_empty() {
+    return input.to_vec();
+  }
+  let ratio = out_sr as f64 / in_sr as f64;
+  let out_len = ((input.len() as f64) * ratio).round() as usize;
+  let mut out = Vec::with_capacity(out_len);
+
+  for i in 0..out_len {
+    let src_pos = (i as f64) / ratio;
+    let idx = src_pos.floor() as usize;
+    let frac = (src_pos - idx as f64) as f32;
+    let a = *input.get(idx).unwrap_or(&0.0);
+    let b = *input.get(idx + 1).unwrap_or(&a);
+    out.push(a + (b - a) * frac);
+  }
+  out
+}
+
+
+pub fn mix_to_mono(data: &[f32], channels: u16) -> Vec<f32> {
+    let mut mono = Vec::with_capacity(data.len() / channels as usize);
+    for frame in data.chunks_exact(channels as usize) {
+        let sum: f32 = frame.iter().sum();
+        mono.push(sum / channels as f32);
+    }
+    mono
+}
