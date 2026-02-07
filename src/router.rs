@@ -10,8 +10,8 @@ use crossbeam_channel::{Receiver, Sender, select};
 // ------------------------------------------------------------------
 
 pub fn router_thread(
-  rx: Receiver<crate::tts::AudioChunk>,
-  tx: Sender<crate::tts::AudioChunk>,
+  rx: Receiver<crate::audio::AudioChunk>,
+  tx: Sender<crate::audio::AudioChunk>,
   out_channels: u16,
   stop_all_rx: Receiver<()>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -21,7 +21,7 @@ pub fn router_thread(
       recv(rx) -> msg => {
         let Ok(chunk) = msg else { break };
         let converted = convert_channels(&chunk.data, chunk.channels, out_channels);
-        let _ = tx.send(crate::tts::AudioChunk {
+        let _ = tx.send(crate::audio::AudioChunk {
           data: converted,
           channels: out_channels,
           sample_rate: chunk.sample_rate,

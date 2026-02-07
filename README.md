@@ -11,11 +11,11 @@ ai mate is a terminal based audio conversation system between a user and an AI m
 `RECORD -> SPEECH TO TEXT -> OLLAMA -> RESPONSE -> TEXT TO SPEECH -> PLAY AUDIO`
 
 ```
-- `You start the program and start talking.`
-- `As soon as there is a silence (based on sound-threshold-peak option), it will transcribe your audio speech into text sent to the ai model.`
-- `The AI model will reply with text, converted to audio using text to speech and played.`
-- `You can interrupt the ai agent at any moment by start speaking, this will cause the response and audio to stop and you can continue talking.`
-- `Pressing space during audio playback.`
+- You start the program and start talking. Once audio is detected (based on sound-threshold-peak option) it will start recording.
+- As soon as there is a time of silence (based on end_silence_ms option), it will transcribe the recorded audio using speech to text (stt) and then the text will be sent to the ai model.
+- The ai model will reply with text, the text converted to audio using text to speech (tts).
+- You can interrupt the ai agent at any moment by start speaking, this will cause the response and audio to stop and you can continue talking.
+- Pressing space during audio playback.
 ```
 
 This is how internally works:

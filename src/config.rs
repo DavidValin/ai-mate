@@ -48,8 +48,8 @@ pub struct Args {
   pub sound_threshold_peak: f32,
 
   /// End an utterance after this much continuous silence (ms)
-  #[arg(long, default_value_t = END_UTTERANCE_SILENCE_MS_DEFAULT, env = "END_UTTERANCE_SILENCE_MS")]
-  pub end_utterance_silence_ms: u64,
+  #[arg(long, default_value_t = END_SILENCE_MS_DEFAULT, env = "END_SILENCE_MS")]
+  pub end_silence_ms: u64,
 
   /// Whisper model path (ggml .bin) used by whisper-cli/whisper
   /// Defaults to "$HOME/.whisper-models/ggml-large-v3-q5_0.bin".
@@ -73,7 +73,7 @@ const SOUND_THRESHOLD_PEAK_DEFAULT: f32 = 0.10;
 pub const HANGOVER_MS_DEFAULT: u64 = 0;
 
 // End an utterance after this much continuous silence (peak < threshold)
-const END_UTTERANCE_SILENCE_MS_DEFAULT: u64 = 850;
+const END_SILENCE_MS_DEFAULT: u64 = 850;
 pub const MIN_UTTERANCE_MS_DEFAULT: u64 = 300;
 
 // Ollama + Whisper + TTS configuration

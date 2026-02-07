@@ -21,7 +21,7 @@ pub fn playback_thread(
   device: cpal::Device,
   supported: cpal::SupportedStreamConfig,
   config: cpal::StreamConfig,
-  rx_audio: Receiver<crate::tts::AudioChunk>,
+  rx_audio: Receiver<crate::audio::AudioChunk>,
   rx_stop: Receiver<()>,
   stop_all_rx: Receiver<()>,
   playback_active: Arc<AtomicBool>,

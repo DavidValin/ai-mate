@@ -14,8 +14,8 @@ use std::time::{Instant};
 pub fn conversation_thread(
    start_instant:&OnceLock<Instant>,
   voice: &str,
-  rx_utt: Receiver<crate::tts::AudioChunk>,
-  tx_audio_into_router: Sender<crate::tts::AudioChunk>,
+  rx_utt: Receiver<crate::audio::AudioChunk>,
+  tx_audio_into_router: Sender<crate::audio::AudioChunk>,
   stop_all_rx: Receiver<()>,
   out_sample_rate: u32, // MUST match playback SR
   interrupt_counter: Arc<AtomicU64>,

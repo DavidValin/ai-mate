@@ -41,7 +41,7 @@ pub fn warm_up_whisper(
   }
 
   // A short silence chunk is enough to force model load / init.
-  let silence = crate::tts::AudioChunk {
+  let silence = crate::audio::AudioChunk {
     data: vec![0.0; 16_000 / 2], // ~0.5s at 16kHz
     channels: 1,
     sample_rate: 16_000,
@@ -60,10 +60,10 @@ pub fn warm_up_whisper(
 
 pub fn whisper_transcribe(
    start_instant:&OnceLock<Instant>,
-  utt: &crate::tts::AudioChunk,
+  utt: &crate::audio::AudioChunk,
   args: &crate::config::Args,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-  let wav_path = crate::tts::write_tmp_wav_16k_mono(start_instant, utt)?;
+  let wav_path = crate::audio::write_tmp_wav_16k_mono(start_instant, utt)?;
 
   // Equivalent to the old whisper-wrapper.sh:
   //   whisper-cli -m <MODEL> -np -nt -f <WAV>

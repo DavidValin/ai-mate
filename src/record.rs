@@ -18,8 +18,8 @@ pub fn record_thread(
   device: cpal::Device,
   supported: cpal::SupportedStreamConfig,
   config: cpal::StreamConfig,
-  tx: Sender<crate::tts::AudioChunk>,   // mic -> router
-  tx_utt: Sender<crate::tts::AudioChunk>, // utterance -> conversation
+  tx: Sender<crate::audio::AudioChunk>,   // mic -> router
+  tx_utt: Sender<crate::audio::AudioChunk>, // utterance -> conversation
   vad_thresh: f32,
   end_silence_ms: u64,
   playback_active: Arc<AtomicBool>,
@@ -153,8 +153,8 @@ fn build_input_f32(
   config: &cpal::StreamConfig,
   channels: u16,
   sample_rate: u32,
-  tx: Sender<crate::tts::AudioChunk>,
-  tx_utt: Sender<crate::tts::AudioChunk>,
+  tx: Sender<crate::audio::AudioChunk>,
+  tx_utt: Sender<crate::audio::AudioChunk>,
   vad_thresh: f32,
   end_silence_ms: u64,
   min_utt_ms: u64,
@@ -230,7 +230,7 @@ fn build_input_f32(
             //   dur_ms
             // );
             if dur_ms >= min_utt_ms {
-              let _ = tx_utt.send(crate::tts::AudioChunk {
+              let _ = tx_utt.send(crate::audio::AudioChunk {
                 data: audio,
                 channels,
                 sample_rate,
@@ -271,8 +271,8 @@ fn build_input_i16(
   config: &cpal::StreamConfig,
   channels: u16,
   sample_rate: u32,
-  tx: Sender<crate::tts::AudioChunk>,
-  tx_utt: Sender<crate::tts::AudioChunk>,
+  tx: Sender<crate::audio::AudioChunk>,
+  tx_utt: Sender<crate::audio::AudioChunk>,
   vad_thresh: f32,
   end_silence_ms: u64,
   min_utt_ms: u64,
@@ -347,7 +347,7 @@ fn build_input_i16(
             //   dur_ms
             // );
             if dur_ms >= min_utt_ms {
-              let _ = tx_utt.send(crate::tts::AudioChunk {
+              let _ = tx_utt.send(crate::audio::AudioChunk {
                 data: audio,
                 channels,
                 sample_rate,
@@ -381,8 +381,8 @@ fn build_input_u16(
   config: &cpal::StreamConfig,
   channels: u16,
   sample_rate: u32,
-  tx: Sender<crate::tts::AudioChunk>,
-  tx_utt: Sender<crate::tts::AudioChunk>,
+  tx: Sender<crate::audio::AudioChunk>,
+  tx_utt: Sender<crate::audio::AudioChunk>,
   vad_thresh: f32,
   end_silence_ms: u64,
   min_utt_ms: u64,
@@ -465,7 +465,7 @@ fn build_input_u16(
             //   dur_ms
             // );
             if dur_ms >= min_utt_ms {
-              let _ = tx_utt.send(crate::tts::AudioChunk {
+              let _ = tx_utt.send(crate::audio::AudioChunk {
                 data: audio,
                 channels,
                 sample_rate,
@@ -497,7 +497,7 @@ fn chunk_and_send(
   data: &[f32],
   channels: u16,
   sample_rate: u32,
-  tx: &Sender<crate::tts::AudioChunk>,
+  tx: &Sender<crate::audio::AudioChunk>,
   accum: &Arc<Mutex<Vec<f32>>>,
 ) {
   let mut acc = accum.lock().unwrap();
@@ -506,7 +506,7 @@ fn chunk_and_send(
   let chunk_len = crate::tts::CHUNK_FRAMES * channels as usize;
   while acc.len() >= chunk_len {
     let chunk_data: Vec<f32> = acc.drain(..chunk_len).collect();
-    let _ = tx.try_send(crate::tts::AudioChunk {
+    let _ = tx.try_send(crate::audio::AudioChunk {
       data: chunk_data,
       channels,
       sample_rate,

@@ -5,9 +5,7 @@
 
 
 use std::io::{BufReader, Read};
-use std::path::PathBuf;
-use std::sync::{atomic::{AtomicU64, Ordering}, Arc, OnceLock};
-use std::time::{Instant};
+use std::sync::{atomic::{AtomicU64, Ordering}, Arc};
 use crossbeam_channel::{Receiver, Sender};
 use urlencoding;
 use reqwest;
@@ -54,13 +52,6 @@ pub const DEFAULT_VOICES_PER_LANGUAGE: &[(&str, &str)] = &[
 pub const CHUNK_FRAMES: usize = 512;             // Frames per chunk (per-channel interleaved)
 pub const QUEUE_CAP_FRAMES: usize = 48_000 * 15; // Playback queue capacity in frames at output SR; 15 seconds worth (scaled by channels)
 
-#[derive(Clone, Debug)]
-pub struct AudioChunk {
-    pub data: Vec<f32>, // interleaved
-    pub channels: u16,
-    pub sample_rate: u32,
-}
-
 
 /// Result of attempting to synthesize/stream a TTS phrase.
 ///
@@ -80,7 +71,7 @@ pub fn speak_via_opentts(
     language: &str,
     voice: &str,
     out_sample_rate: u32, // MUST match CPAL playback SR
-    tx: Sender<AudioChunk>,
+    tx: Sender<crate::audio::AudioChunk>,
     stop_all_rx: Receiver<()>,
     interrupt_counter: Arc<AtomicU64>,
     expected_interrupt: u64,
@@ -110,33 +101,6 @@ pub fn speak_via_opentts(
 }
 
 
-pub fn write_tmp_wav_16k_mono(
-    start_instant:&OnceLock<Instant>,
-    utt: &AudioChunk,
-) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
-    let mono = crate::audio:: mix_to_mono(&utt.data, utt.channels);
-    let mono_16k = audio::resample_linear(&mono, utt.sample_rate, 16_000);
-
-    let mut path = std::env::temp_dir();
-    path.push(format!("aichat_utt_{}.wav", crate::util::now_ms(&start_instant)));
-
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: 16_000,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-
-    let mut writer = hound::WavWriter::create(&path, spec)?;
-    for &s in &mono_16k {
-        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-        writer.write_sample(v)?;
-    }
-    writer.finalize()?;
-
-    Ok(path)
-}
-
 // PRIVATE
 // ------------------------------------------------------------------
 
@@ -151,7 +115,7 @@ pub fn write_tmp_wav_16k_mono(
 // - sending chunks with sample_rate = target_sr
 fn stream_wav16le_over_http(
     url: &str,
-    tx: Sender<               AudioChunk>,
+    tx: Sender<crate::audio::AudioChunk>,
     stop_all_rx: Receiver<()>,
     target_sr: u32, // MUST be playback stream SR
     interrupt_counter: Arc<AtomicU64>,
@@ -292,7 +256,7 @@ fn stream_wav16le_over_http(
                 }
                 data.truncate(aligned);
 
-                tx.send(AudioChunk {
+                tx.send(crate::audio::AudioChunk {
                     data,
                     channels,
                     sample_rate: target_sr, // MUST match playback SR
@@ -310,7 +274,7 @@ fn stream_wav16le_over_http(
             if interrupt_counter.load(Ordering::SeqCst) != expected_interrupt {
                 return Ok(               SpeakOutcome::Interrupted);
             }
-            tx.send(AudioChunk {
+            tx.send(crate::audio::AudioChunk {
                 data: pending,
                 channels,
                 sample_rate: target_sr,
@@ -348,7 +312,7 @@ fn stream_wav16le_over_http(
                 break;
             }
             data.truncate(aligned);
-            tx.send(AudioChunk {
+            tx.send(crate::audio::AudioChunk {
                 data,
                 channels,
                 sample_rate: target_sr,

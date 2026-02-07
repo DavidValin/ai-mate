@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   // CLI-configurable knobs (previously hard-coded / env).
   let vad_thresh: f32 = args.sound_threshold_peak;
-  let end_silence_ms: u64 = args.end_utterance_silence_ms;
+  let end_silence_ms: u64 = args.end_silence_ms;
 
   let host = cpal::default_host();
 
@@ -57,16 +57,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       process::exit(1)
   });
 
-  if args.verbose {
-    println!(
-      "Input device:  {}",
-      in_dev.name().unwrap_or("<unknown>".into())
-    );
-    println!(
-      "Output device: {}",
-      out_dev.name().unwrap_or("<unknown>".into())
-    );
-  }
+  println!(
+    "Input device:  {}",
+    in_dev.name().unwrap_or("<unknown>".into())
+  );
+  println!(
+    "Output device: {}",
+    out_dev.name().unwrap_or("<unknown>".into())
+  );
 
   // Truth is CPAL output config
   let out_cfg_supported = out_dev.default_output_config()?;
@@ -98,12 +96,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let (stop_all_tx, stop_all_rx) = bounded::<()>(1);
 
   // record/external -> router
-  let (tx_rec, rx_rec) = bounded::<tts::AudioChunk>(32);
+  let (tx_rec, rx_rec) = bounded::<audio::AudioChunk>(32);
   // router -> play
-  let (tx_play, rx_play) = bounded::<tts::AudioChunk>(32);
+  let (tx_play, rx_play) = bounded::<audio::AudioChunk>(32);
 
   // utterance audio (record thread -> conversation thread)
-  let (tx_utt, rx_utt) = bounded::<tts::AudioChunk>(4);
+  let (tx_utt, rx_utt) = bounded::<audio::AudioChunk>(4);
 
   // stop playback signal
   let (stop_play_tx, stop_play_rx) = bounded::<()>(2);
