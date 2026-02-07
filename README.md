@@ -68,7 +68,7 @@ ai-mate
   --language en
   --voice larynx:cmu_fem-glow_tts
   --sound-threshold-peak 0.10 \
-  --end-utterance-silence-ms 850 \
+  --end-silence-ms 850 \
   --whisper-model-path "$HOME/.whisper-models/ggml-large-v3-q5_0.bin" \
   --ollama-url "http://localhost:11434/api/generate" \
   --ollama-model "llama3.2:3b" \
