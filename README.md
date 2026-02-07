@@ -8,67 +8,16 @@ ai mate is a terminal based audio conversation system between a user and an AI m
 
 ### How it works
 
-`RECORD -> SPEECH TO TEXT -> OLLAMA -> RESPONSE -> TEXT TO SPEECH -> PLAY AUDIO`
+`RECORD -> STT -> LLM -> REPLY -> TTS -> PLAYBACK`
 
 ```
-- You start the program and start talking. Once audio is detected (based on sound-threshold-peak option) it will start recording.
-- As soon as there is a time of silence (based on end_silence_ms option), it will transcribe the recorded audio using speech to text (stt) and then the text will be sent to the ai model.
-- The ai model will reply with text, the text converted to audio using text to speech (tts).
+- You start the program and start talking.
+- Once audio is detected (based on sound-threshold-peak option) it will start recording.
+- As soon as there is a time of silence (based on end_silence_ms option), it will transcribe the recorded audio using speech to text (stt).
+- The transcribed text will be sent to the ai model (through ollama)
+- The ai model will reply with text.
+- The text converted to audio using text to speech (tts) via OpenTTS.
 - You can interrupt the ai agent at any moment by start speaking, this will cause the response and audio to stop and you can continue talking.
-- Pressing space during audio playback.
-```
-
-This is how internally works:
-
-```
-┌──────────────────────────────┐        ┌──────────────────────────────┐
-│            MAIN              │        │          UI (thread)         │
-├──────────────────────────────┤        ├──────────────────────────────┤
-│ parse args                   │        │ status line                  │
-│ select audio configs         │        │ spinner                      │
-│ create channels              │        └──────────────────────────────┘
-│ spawn threads                │
-└───────────────┬──────────────┘
-                │
-                │
-┌───────────────▼──────────────┐        ┌──────────────────────────────┐
-│       RECORD (thread)        │        │      KEYBOARD (thread)       │
-├──────────────────────────────┤        ├──────────────────────────────┤
-│ mic capture                  │        │ space  -> pause              │
-│ voice activity detect        │        │ esc    -> shutdown           │
-│ detect speech while playing  │        │ ctrl-c -> shutdown           │
-│ interrupt_counter += 1       │        └───────────────┬──────────────┘
-│ send stop_play               │                        │
-│ send utterance audio         │                        │
-└───────────────┬──────────────┘                        ▼
-                │ utterance                    ┌──────────────────────────┐
-                │                              │     PLAYBACK (thread)    │
-┌───────────────▼──────────────┐               ├──────────────────────────┤
-│   CONVERSATION (thread)      │               │ audio queue              │
-├──────────────────────────────┤               │ output callback          │
-│ Whisper: speech -> text      │               │ clear queue on stop      │
-│ LLM token stream             │               │ pause -> silence         │
-│                              │               └───────────────▲──────────┘
-│  ┌────────────────────────┐  │                               │
-│  │      PHRASE QUEUE      │  │                               │
-│  │     (text buffer)      │  │                               │
-│  │ wait for boundary      │  │                               │
-│  └───────────┬────────────┘  │                               │
-│              │ phrase ready  │                               │ stop_play
-│ OpenTTS: text -> speech      │                               │
-│ stop on interrupt            │                               │
-│ send audio chunks            │                               │
-└───────────────┬──────────────┘                               │
-                │ audio chunks                                 │
-                ▼                                              │
-┌──────────────────────────────┐                               │
-│        ROUTER (thread)       │                               │
-├──────────────────────────────┤                               │
-│ receive audio chunks         │                               │
-│ channel mapping              │                               │
-│ forward to playback          │───────────────────────────────┘
-└──────────────────────────────┘
-
 ```
 
 ### Installation
@@ -79,13 +28,20 @@ Install dependencies:
 - Ollama: `https://ollama.com/download` (needed for ai responses)
 - Whisper.cpp: `https://github.com/ggml-org/whisper.cpp`, see 'Quick Start' (needed for TTS)
 - Rust: `https://rustup.rs` (needed to compile ai-mate from source)
-- Alsa development libraries: called `libasound2-dev` or `alsa-lib-devel` or `alsa-lib`
-- Install `pkg-config`
 
 Download models:
 
-- `ollama pull deepseek-r1:latest` (or the model you want to use)
-- `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin?download=true`
+- llm model: `ollama pull llama3.2:3b` (or the model you want to use)
+- whisper model (stt): `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin?download=true`
+
+Windows only:
+
+- install the Windows Terminal (that supports emojis): `https://apps.microsoft.com/detail/9n0dx20hk701`
+
+On Linux / MacOS:
+
+- Install alsa development libraries: called `libasound2-dev` or `alsa-lib-devel` or `alsa-lib`
+- Install `pkg-config`
 
 Build and install ai-mate:
 
@@ -115,7 +71,7 @@ ai-mate
   --end-utterance-silence-ms 850 \
   --whisper-model-path "$HOME/.whisper-models/ggml-large-v3-q5_0.bin" \
   --ollama-url "http://localhost:11434/api/generate" \
-  --ollama-model "deepseek-r1:latest" \
+  --ollama-model "llama3.2:3b" \
   --opentts-base-url "http://0.0.0.0:5500/api/tts?voice=coqui-tts%3Aen_ljspeech&lang=en&vocoder=high&denoiserStrength=0.005&&speakerId=&ssml=false&ssmlNumbers=true&ssmlDates=true&ssmlCurrency=true&cache=false"
 ```
 

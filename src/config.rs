@@ -78,7 +78,7 @@ pub const MIN_UTTERANCE_MS_DEFAULT: u64 = 300;
 
 // Ollama + Whisper + TTS configuration
 pub const OLLAMA_URL_DEFAULT: &str = "http://localhost:11434/api/generate";
-pub const OLLAMA_MODEL_DEFAULT: &str = "deepseek-r1:latest";
+pub const OLLAMA_MODEL_DEFAULT: &str = "llama3.2:3b";
 
 // OpenTTS base endpoint (we append sample_rate + text)
 const OPENTTS_BASE_URL_DEFAULT: &str = "http://0.0.0.0:5500/api/tts?&vocoder=high&denoiserStrength=0.005&&speakerId=&ssml=false&ssmlNumbers=true&ssmlDates=true&ssmlCurrency=true&cache=false";
