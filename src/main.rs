@@ -25,6 +25,7 @@ mod conversation;
 mod tts;
 mod stt;
 mod playback;
+mod log;
 
 static START_INSTANT: OnceLock<Instant> = OnceLock::new();
 
@@ -35,6 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let _ = START_INSTANT.get_or_init(Instant::now);
 
   let mut args = crate::config::Args::parse();
+crate::log::set_verbose(args.verbose);
 
   // Expand computed defaults that can't be expressed as static clap defaults.
   if args.whisper_model_path.trim().is_empty() {
@@ -48,23 +50,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let host = cpal::default_host();
 
   let (in_dev, _in_stream) = audio::pick_input_stream(&host).unwrap_or_else(|msg| {
-      eprintln!("{msg}");
-      process::exit(1)
+    log::log("error", &format!("{}", msg));
+    process::exit(1)
   });
 
   let (out_dev, _out_stream) = audio::pick_output_stream(&host).unwrap_or_else(|msg| {
-      eprintln!("{msg}");
-      process::exit(1)
+    log::log("error", &format!("{}", msg));
+    process::exit(1)
   });
 
-  println!(
-    "Input device:  {}",
-    in_dev.name().unwrap_or("<unknown>".into())
-  );
-  println!(
-    "Output device: {}",
-    out_dev.name().unwrap_or("<unknown>".into())
-  );
+  log::log("info", &format!("Input device:  {}", in_dev.name().unwrap_or("<unknown>".into())));
+  log::log("info", &format!("Output device: {}", out_dev.name().unwrap_or("<unknown>".into())));
 
   // Truth is CPAL output config
   let out_cfg_supported = out_dev.default_output_config()?;
@@ -76,21 +72,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let in_cfg_supported = config::pick_input_config(&in_dev, out_sample_rate)?;
   let in_cfg: cpal::StreamConfig = in_cfg_supported.clone().into();
 
-  if args.verbose {
-    println!(
-      "Picked Input:  {} ch @ {} Hz ({:?})",
-      in_cfg.channels,
-      in_cfg.sample_rate.0,
-      in_cfg_supported.sample_format()
-    );
-    println!(
-      "Picked Output: {} ch @ {} Hz ({:?})",
-      out_cfg.channels,
-      out_cfg.sample_rate.0,
-      out_cfg_supported.sample_format()
-    );
-    println!("Playback stream SR (truth): {}", out_sample_rate);
-  }
+  log::log("info", &format!("Picked Input:  {} ch @ {} Hz ({:?})", in_cfg.channels, in_cfg.sample_rate.0, in_cfg_supported.sample_format()));
+  log::log("info", &format!("Picked Output: {} ch @ {} Hz ({:?})", out_cfg.channels, out_cfg.sample_rate.0, out_cfg_supported.sample_format()));
+  log::log("info", &format!("Playback stream SR (truth): {}", out_sample_rate));
 
   // Global stop signal
   let (stop_all_tx, stop_all_rx) = bounded::<()>(1);
@@ -135,16 +119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .map(|(_, voice)| *voice)
     .unwrap_or("glow-speak:en-us_ljspeech");
 
-  ui::ui_println(
-    &print_lock,
-    &status_line,
-    &format!("Language: {}", args.language),
-  );
-  ui::ui_println(
-    &print_lock,
-    &status_line,
-    &format!("TTS voice: {}", voice_selected),
-  );
+  log::log("info", &format!("Language: {}", args.language));
+  log::log("info", &format!("TTS voice: {}", voice_selected));
 
   // ---- Thread: UI Thread ----
   let ui_handle = ui::spawn_ui_thread(
@@ -247,11 +223,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         status_line.clone(),
         print_lock.clone(),
       ) {
-        ui::ui_println(
-          &print_lock,
-          &status_line,
-          &format!("conversation thread error: {e}"),
-        );
+        crate::log::log("error", &format!("conversation thread error: {}", e));
       }
     }
   });
@@ -267,16 +239,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   // Print config knobs
   let hangover_ms = util::env_u64("HANGOVER_MS", config::HANGOVER_MS_DEFAULT);
-  if args.verbose {
-    ui::ui_println(
-      &print_lock,
-      &status_line,
-      &format!(
-        "VAD threshold_peak={:.3} end_silence_ms={} hangover_ms={}",
-        vad_thresh, end_silence_ms, hangover_ms
-      ),
-    );
-  }
+  log::log("info", &format!(
+    "VAD threshold_peak={:.3} end_silence_ms={} hangover_ms={}",
+    vad_thresh, end_silence_ms, hangover_ms
+  ));
 
   // Block until keyboard thread exits (Enter/Esc), then propagate stop.
   let _ = key_handle.join();

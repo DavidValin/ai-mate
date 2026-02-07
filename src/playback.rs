@@ -42,7 +42,7 @@ pub fn playback_thread(
   // When this reaches a few callbacks in a row of "no real audio", we mark not-playing.
   let empty_callbacks = Arc::new(AtomicU64::new(0));
 
-  let err_fn = |e| println!("output stream error: {e}");
+  let err_fn = |e| crate::log::log("error", &format!("output stream error: {}", e));
 
   let stream = match sample_format {
     SampleFormat::F32 => device.build_output_stream(

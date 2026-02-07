@@ -198,11 +198,7 @@ fn stream_wav16le_over_http(
     if channels == 0 || sample_rate == 0 {
         return Err("missing WAV fmt info".into());
     }
-
-    // println!(
-    //     "OpenTTS WAV: PCM16LE, {} ch @ {} Hz, data {} bytes (target {} Hz)",
-    //     channels, sample_rate, data_len, target_sr
-    // );
+    crate::log::log("info", &format!("OpenTTS WAV: PCM16LE, {} ch @ {} Hz, data {} bytes (target {} Hz)", channels, sample_rate, data_len, target_sr));
 
     // IMPORTANT: Don't `read_exact(data_len)` in one shot.
     // That can block until the entire WAV payload downloads, which prevents us

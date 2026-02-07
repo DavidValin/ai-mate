@@ -52,7 +52,7 @@ pub fn record_thread(
   // debounced stop signal
   let stop_sent = Arc::new(AtomicBool::new(false));
 
-  let err_fn = |e| println!("input stream error: {e}");
+  let err_fn = |e| crate::log::log("error", &format!("input stream error: {}", e));
 
   let stream = match sample_format {
     SampleFormat::F32 => build_input_f32(
@@ -103,6 +103,7 @@ pub fn record_thread(
       last_voice_ms.clone(),
       stop_sent.clone(),
       stop_all_rx.clone(),
+      peak.clone(),
       ui,
       err_fn,
     )?,
@@ -128,6 +129,7 @@ pub fn record_thread(
       last_voice_ms.clone(),
       stop_sent.clone(),
       stop_all_rx.clone(),
+      peak.clone(),
       ui,
       err_fn,
     )?,
@@ -185,7 +187,7 @@ fn build_input_f32(
         return;
       }
 
-      // use previously computed local_peak for threshold check
+      // use previously computed peak for threshold check
       if local_peak >= vad_thresh {
         last_voice_ms.store(crate::util::now_ms(&start_instant), Ordering::Relaxed);
         ui.speaking.store(true, Ordering::Relaxed);
@@ -193,7 +195,7 @@ fn build_input_f32(
         if !in_speech.swap(true, Ordering::Relaxed) {
           let mut b = utt_buf.lock().unwrap();
           b.clear();
-          // println!("[{}ms] speech start (peak={:.3})", now_ms(), peak);
+          crate::log::log("info", &format!("Audio detected (peak: {:.3})", local_peak));
         }
         {
           let mut b = utt_buf.lock().unwrap();
@@ -214,21 +216,16 @@ fn build_input_f32(
         }
         let last = last_voice_ms.load(Ordering::Relaxed);
         if last > 0 && crate::util::now_ms(&start_instant).saturating_sub(last) >= end_silence_ms {
+          crate::log::log("info", "Silence detected");
           ui.speaking.store(false, Ordering::Relaxed);
           in_speech.store(false, Ordering::Relaxed);
           stop_sent.store(false, Ordering::Relaxed);
-
           let mut b = utt_buf.lock().unwrap();
           if !b.is_empty() {
             let audio = std::mem::take(&mut *b);
             let denom = (sample_rate as u64).saturating_mul(channels as u64).max(1);
             let dur_ms = (audio.len() as u64).saturating_mul(1000) / denom;
-            // println!(
-            //   "[{}ms] speech end -> utterance samples={} (~{}ms)",
-            //   crate::util::now_ms(&start_instant),
-            //   audio.len(),
-            //   dur_ms
-            // );
+            crate::log::log("info", &format!("Speech ended after (~{}ms) of silence; samples={})", dur_ms, audio.len()));
             if dur_ms >= min_utt_ms {
               let _ = tx_utt.send(crate::audio::AudioChunk {
                 data: audio,
@@ -236,12 +233,7 @@ fn build_input_f32(
                 sample_rate,
               });
             } else {
-              println!(
-                "[{}ms] utterance too short ({}ms < {}ms), dropped",
-                crate::util::now_ms(&start_instant),
-                dur_ms,
-                min_utt_ms
-              );
+              crate::log::log("warning", &format!("[{}ms] utterance too short ({}ms < {}ms), dropped", crate::util::now_ms(&start_instant), dur_ms, min_utt_ms));
             }
           }
         }
@@ -287,6 +279,7 @@ fn build_input_i16(
   last_voice_ms: Arc<AtomicU64>,
   stop_sent: Arc<AtomicBool>,
   stop_all_rx: Receiver<()>,
+  peak: Arc<Mutex<f32>>,
   ui: crate::ui::UiState,
   mut err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<cpal::Stream, cpal::BuildStreamError> {
@@ -311,7 +304,7 @@ fn build_input_i16(
         if !in_speech.swap(true, Ordering::Relaxed) {
           let mut b = utt_buf.lock().unwrap();
           b.clear();
-          // println!("[{}ms] speech start (peak={:.3})", now_ms(), peak);
+          crate::log::log("info", &format!("Audio detected (peak: {:.3})", peak));
         }
         {
           let mut b = utt_buf.lock().unwrap();
@@ -331,21 +324,16 @@ fn build_input_i16(
         }
         let last = last_voice_ms.load(Ordering::Relaxed);
         if last > 0 && crate::util::now_ms(&start_instant).saturating_sub(last) >= end_silence_ms {
+          crate::log::log("info", "Silence detected");
           ui.speaking.store(false, Ordering::Relaxed);
           in_speech.store(false, Ordering::Relaxed);
           stop_sent.store(false, Ordering::Relaxed);
-
           let mut b = utt_buf.lock().unwrap();
           if !b.is_empty() {
             let audio = std::mem::take(&mut *b);
             let denom = (sample_rate as u64).saturating_mul(channels as u64).max(1);
             let dur_ms = (audio.len() as u64).saturating_mul(1000) / denom;
-            // println!(
-            //   "[{}ms] speech end -> utterance samples={} (~{}ms)",
-            //   now_ms(),
-            //   audio.len(),
-            //   dur_ms
-            // );
+            crate::log::log("info", &format!("Speech ended after (~{}ms) of silence; samples={})", dur_ms, audio.len()));
             if dur_ms >= min_utt_ms {
               let _ = tx_utt.send(crate::audio::AudioChunk {
                 data: audio,
@@ -397,6 +385,7 @@ fn build_input_u16(
   last_voice_ms: Arc<AtomicU64>,
   stop_sent: Arc<AtomicBool>,
   stop_all_rx: Receiver<()>,
+  peak: Arc<Mutex<f32>>,
   ui: crate::ui::UiState,
   mut err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<cpal::Stream, cpal::BuildStreamError> {
@@ -410,7 +399,7 @@ fn build_input_u16(
         tmp.push(v * 2.0 - 1.0);
       }
 
-      let local_peak = peak_abs(&tmp);
+      let peak = peak_abs(&tmp);
 
       if stop_all_rx.try_recv().is_ok() {
         return;
@@ -422,7 +411,7 @@ fn build_input_u16(
         tmp.push(v * 2.0 - 1.0);
       }
 
-      if local_peak >= vad_thresh {
+      if peak >= vad_thresh {
         ui.speaking.store(false, Ordering::Relaxed);
         last_voice_ms.store(crate::util::now_ms(&start_instant), Ordering::Relaxed);
         ui.speaking.store(true, Ordering::Relaxed);
@@ -430,7 +419,7 @@ fn build_input_u16(
         if !in_speech.swap(true, Ordering::Relaxed) {
           let mut b = utt_buf.lock().unwrap();
           b.clear();
-          // println!("[{}ms] speech start (peak={:.3})", crate::util::now_ms(start_instant), peak);
+          crate::log::log("info", &format!("Audio detected (peak: {:.3})", peak));
         }
         {
           let mut b = utt_buf.lock().unwrap();
@@ -450,6 +439,7 @@ fn build_input_u16(
         }
         let last = last_voice_ms.load(Ordering::Relaxed);
         if last > 0 && crate::util::now_ms(&start_instant).saturating_sub(last) >= end_silence_ms {
+          crate::log::log("info", "Silence detected");
           in_speech.store(false, Ordering::Relaxed);
           stop_sent.store(false, Ordering::Relaxed);
 
@@ -458,12 +448,7 @@ fn build_input_u16(
             let audio = std::mem::take(&mut *b);
             let denom = (sample_rate as u64).saturating_mul(channels as u64).max(1);
             let dur_ms = (audio.len() as u64).saturating_mul(1000) / denom;
-            // println!(
-            //   "[{}ms] speech end -> utterance samples={} (~{}ms)",
-            //   crate::util::now_ms(start_instant),
-            //   audio.len(),
-            //   dur_ms
-            // );
+            crate::log::log("info", &format!("Speech ended after (~{}ms) of silence; samples={})", dur_ms, audio.len()));
             if dur_ms >= min_utt_ms {
               let _ = tx_utt.send(crate::audio::AudioChunk {
                 data: audio,

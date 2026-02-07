@@ -24,20 +24,11 @@ pub fn conversation_thread(
   status_line: Arc<Mutex<String>>,
   print_lock: Arc<Mutex<()>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  // Print core model configuration once at startup.
-  crate::ui::ui_println(
-    &print_lock,
-    &status_line,
-    &format!("Whisper model: {}", args.whisper_model_path),
-  );
-  crate::ui::ui_println(
-    &print_lock,
-    &status_line,
-    &format!("Ollama model: {}", args.ollama_model),
-  );
+  crate::log::log("info", &format!("Whisper model: {}", args.whisper_model_path));
+  crate::log::log("info", &format!("Ollama model: {}", args.ollama_model));
 
   // Warm up Whisper model (first transcription can be slow as the model loads).
-  crate::stt::warm_up_whisper(&start_instant, &args, &status_line, &print_lock)?;
+  crate::stt::warm_up_whisper(&start_instant, &args)?;
 
   loop {
     select! {

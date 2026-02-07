@@ -6,6 +6,7 @@
 
 use cpal::traits::{DeviceTrait, HostTrait};
 use std::sync::{OnceLock};
+use crate::log::log;
 use std::time::{Instant};
 use std::path::PathBuf;
 
@@ -14,56 +15,55 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct AudioChunk {
-    pub data: Vec<f32>, // interleaved
-    pub channels: u16,
-    pub sample_rate: u32,
+  pub data: Vec<f32>, // interleaved
+  pub channels: u16,
+  pub sample_rate: u32,
 }
 
 
 pub fn pick_input_stream(host: &cpal::Host) -> Result<(cpal::Device, cpal::Stream), String> {
-    let err = || {
-        "\n ❌ No usable microphone stream could be opened.\n".to_string()
-            + "    • On macOS: System Settings → Privacy & Security → Microphone → allow your app/Terminal\n"
-            + "    • Also check System Settings → Sound → Input\n"
-    };
+  let err = || {
+    "No usable microphone stream could be opened.\n".to_string()
+      + "    • On MacOS: System Settings → Privacy & Security → Microphone → allow your app/Terminal\n"
+      + "    • Also check System Settings → Sound → Input\n"
+  };
 
-    let dev = host.default_input_device().ok_or_else(err)?;
+  let dev = host.default_input_device().ok_or_else(err)?;
 
-    let cfg = dev.default_input_config().map_err(|_| err())?;
+  let cfg = dev.default_input_config().map_err(|_| err())?;
 
-    let stream = dev
-        .build_input_stream(
-            &cfg.clone().into(),
-            |_data: &[f32], _| {},
-            |_err| {},
-            None,
-        )
-        .map_err(|_| err())?;
+  let stream = dev
+    .build_input_stream(
+      &cfg.clone().into(),
+      |_data: &[f32], _| {},
+      |_err| {},
+      None,
+    )
+    .map_err(|_| err())?;
 
-    Ok((dev, stream))
+  Ok((dev, stream))
 }
 
 
 pub fn pick_output_stream(host: &cpal::Host) -> Result<(cpal::Device, cpal::Stream), String> {
-    let err = || {
-        "\n ❌ No usable output stream could be opened.".to_string()
-            + "   • On macOS: System Settings → Sound → Output (select a device)"
-    };
+  let err = || {
+    "No usable output stream could be opened.".to_string()
+      + "   • On MacOS: System Settings → Sound → Output (select a device)"
+  };
 
-    let dev = host.default_output_device().ok_or_else(err)?;
+  let dev = host.default_output_device().ok_or_else(err)?;
+  let cfg = dev.default_output_config().map_err(|_| err())?;
 
-    let cfg = dev.default_output_config().map_err(|_| err())?;
+  let stream = dev
+    .build_output_stream(
+      &cfg.clone().into(),
+      |data: &mut [f32], _| data.fill(0.0),
+      |_err| {},
+      None,
+    )
+    .map_err(|_| err())?;
 
-    let stream = dev
-        .build_output_stream(
-            &cfg.clone().into(),
-            |data: &mut [f32], _| data.fill(0.0),
-            |_err| {},
-            None,
-        )
-        .map_err(|_| err())?;
-
-    Ok((dev, stream))
+  Ok((dev, stream))
 }
 
 
@@ -158,25 +158,26 @@ pub fn write_tmp_wav_16k_mono(
     start_instant:&OnceLock<Instant>,
     utt: &AudioChunk,
 ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
-    let mono = crate::audio:: mix_to_mono(&utt.data, utt.channels);
-    let mono_16k = resample_linear(&mono, utt.sample_rate, 16_000);
+  let mono = crate::audio:: mix_to_mono(&utt.data, utt.channels);
+  let mono_16k = resample_linear(&mono, utt.sample_rate, 16_000);
 
-    let mut path = std::env::temp_dir();
-    path.push(format!("aichat_utt_{}.wav", crate::util::now_ms(&start_instant)));
+  let mut path = std::env::temp_dir();
+  path.push(format!("aichat_utt_{}.wav", crate::util::now_ms(&start_instant)));
 
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: 16_000,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
+  let spec = hound::WavSpec {
+      channels: 1,
+      sample_rate: 16_000,
+      bits_per_sample: 16,
+      sample_format: hound::SampleFormat::Int,
+  };
 
-    let mut writer = hound::WavWriter::create(&path, spec)?;
-    for &s in &mono_16k {
-        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-        writer.write_sample(v)?;
-    }
-    writer.finalize()?;
-
-    Ok(path)
+  let mut writer = hound::WavWriter::create(&path, spec)?;
+  log("info", &format!("Writing {} samples to {:?}", mono_16k.len(), path));
+  for &s in &mono_16k {
+    let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+    writer.write_sample(v)?;
+  }
+  writer.finalize()?;
+  log("info", &format!("Writing {} samples to {:?}", mono_16k.len(), path));
+  Ok(path)
 }

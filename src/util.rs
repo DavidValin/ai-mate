@@ -10,7 +10,6 @@ use std::time::{Instant};
 // API
 // ------------------------------------------------------------------
 
-
 pub fn now_ms(start_instant:&OnceLock<Instant>) -> u64 {
   let start = start_instant.get_or_init(Instant::now);
   start.elapsed().as_millis() as u64

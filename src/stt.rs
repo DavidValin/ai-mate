@@ -4,7 +4,7 @@
 
 
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{OnceLock};
 use std::time::{Instant};
 use std::path::PathBuf;
 use std::process::Command;
@@ -23,22 +23,14 @@ pub fn default_whisper_model_path() -> String {
 
 
 pub fn warm_up_whisper(
-   start_instant:&OnceLock<Instant>,
-  args: &crate::config::Args,
-  status_line: &Arc<Mutex<String>>,
-  print_lock: &Arc<Mutex<()>>,
+  start_instant:&OnceLock<Instant>,
+  args: &crate::config::Args
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // Resolve early so we fail fast with a clear error if Whisper isn't installed.
   let whisper_bin = resolve_whisper_program(args)?;
 
-  if args.verbose {
-    crate::ui::ui_println(
-      print_lock,
-      status_line,
-      &format!("Whisper binary: {}", whisper_bin.to_string_lossy()),
-    );
-    crate::ui::ui_println(print_lock, status_line, "Warming up Whisper model...");
-  }
+  crate::log::log("info", &format!("Whisper binary: {}", whisper_bin.to_string_lossy()));
+  crate::log::log("info", "Warming up Whisper model...");
 
   // A short silence chunk is enough to force model load / init.
   let silence = crate::audio::AudioChunk {
@@ -50,9 +42,7 @@ pub fn warm_up_whisper(
   // We don't care what the transcription is; we just want to pay the one-time init cost upfront.
   let _ = whisper_transcribe(&start_instant, &silence, args)?;
 
-  if args.verbose {
-    crate::ui::ui_println(print_lock, status_line, "Whisper warm-up complete.");
-  }
+  crate::log::log("info", "Whisper warm-up complete.");
 
   Ok(())
 }
