@@ -4,8 +4,66 @@
 
 
 
+use cpal::traits::{DeviceTrait, HostTrait};
+
+
 // API
 // ------------------------------------------------------------------
+
+pub fn pick_input_stream(host: &cpal::Host) -> Result<(cpal::Device, cpal::Stream), String> {
+    let devices = host.input_devices().map_err(|e| format!("Can't list input devices: {e}"))?;
+
+    for dev in devices {
+        let cfg = match dev.default_input_config() {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let _stream = match dev.build_input_stream(
+            &cfg.clone().into(),
+            |_data: &[f32], _| {},
+            |_err| {},
+            None,
+        ) {
+            Ok(s) => return Ok((dev, s)),
+            Err(_) => continue,
+        };
+    }
+
+    Err(
+        "\n ❌ No usable microphone stream could be opened.\n".to_string()
+      + "    • On macOS: System Settings → Privacy & Security → Microphone → allow your app/Terminal\n"
+      + "    • Also check System Settings → Sound → Input\n",
+    )
+}
+
+
+pub fn pick_output_stream(host: &cpal::Host) -> Result<(cpal::Device, cpal::Stream), String> {
+    let devices = host.output_devices().map_err(|e| format!("Can't list output devices: {e}"))?;
+
+    for dev in devices {
+        let cfg = match dev.default_output_config() {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let _stream = match dev.build_output_stream(
+            &cfg.clone().into(),
+            |data: &mut [f32], _| data.fill(0.0),
+            |_err| {},
+            None,
+        ) {
+            Ok(s) => return Ok((dev, s)),
+            Err(_) => continue,
+        };
+    }
+
+    Err(
+      "\n ❌ No usable output stream could be opened.".to_string()
+    + "   • On macOS: System Settings → Sound → Output (select a device)"
+    )
+}
+
 
 /// Linear interpolation resample of interleaved audio.
 pub fn resample_interleaved_linear(input: &[f32], channels: u16, in_sr: u32, out_sr: u32) -> Vec<f32> {

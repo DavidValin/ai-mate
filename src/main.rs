@@ -4,8 +4,9 @@
 
 
 
+use std::process;
 use clap::Parser;
-use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use crossbeam_channel::bounded;
 use std::sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, AtomicU64}};
 use std::thread;
@@ -45,12 +46,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let end_silence_ms: u64 = args.end_utterance_silence_ms;
 
   let host = cpal::default_host();
-  let in_dev = host
-    .default_input_device()
-    .expect("No input device available");
-  let out_dev = host
-    .default_output_device()
-    .expect("No output device available");
+
+  let (in_dev, _in_stream) = audio::pick_input_stream(&host).unwrap_or_else(|msg| {
+      eprintln!("{msg}");
+      process::exit(1)
+  });
+
+  let (out_dev, _out_stream) = audio::pick_output_stream(&host).unwrap_or_else(|msg| {
+      eprintln!("{msg}");
+      process::exit(1)
+  });
 
   if args.verbose {
     println!(
