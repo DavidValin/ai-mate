@@ -64,15 +64,14 @@ To start the conversation follow this instructions:
 Below is the default parameters, which you can override, example:
 
 ```
-ai-mate 
-  --language en
-  --voice larynx:cmu_fem-glow_tts
+ai-mate \
+  --language en \
   --sound-threshold-peak 0.10 \
   --end-silence-ms 850 \
   --whisper-model-path "$HOME/.whisper-models/ggml-large-v3-q5_0.bin" \
   --ollama-url "http://localhost:11434/api/generate" \
   --ollama-model "llama3.2:3b" \
-  --opentts-base-url "http://0.0.0.0:5500/api/tts?voice=coqui-tts%3Aen_ljspeech&lang=en&vocoder=high&denoiserStrength=0.005&&speakerId=&ssml=false&ssmlNumbers=true&ssmlDates=true&ssmlCurrency=true&cache=false"
+  --opentts-base-url "http://0.0.0.0:5500/api/tts?vocoder=high&denoiserStrength=0.005&&speakerId=&ssml=false&ssmlNumbers=true&ssmlDates=true&ssmlCurrency=true&cache=false"
 ```
 
 You can just override a specific variable, for example:
