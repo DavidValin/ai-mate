@@ -6,7 +6,7 @@
 
 use std::process;
 use clap::Parser;
-use cpal::traits::{DeviceTrait, StreamTrait};
+use cpal::traits::{DeviceTrait};
 use crossbeam_channel::bounded;
 use std::sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, AtomicU64}};
 use std::thread;

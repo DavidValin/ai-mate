@@ -233,12 +233,7 @@ pub fn playback_thread(
         let Ok(chunk) = msg else { break };
 
         // Sanity: must match playback SR
-        if chunk.sample_rate != config.sample_rate.0 {
-          println!(
-            "WARN: got audio at {} Hz but playback stream is {} Hz (speed will be wrong)",
-            chunk.sample_rate, config.sample_rate.0
-          );
-        }
+        
 
         let channels = out_channels as usize;
         let max_samples = crate::tts::QUEUE_CAP_FRAMES * channels;
@@ -256,8 +251,16 @@ pub fn playback_thread(
 
         {
           let mut q = queue.lock().unwrap();
-          for s in chunk.data {
-            q.push_back(s);
+          // resample if needed
+          if chunk.sample_rate != config.sample_rate.0 {
+            let resampled = crate::audio::resample_to(&chunk.data, chunk.channels, chunk.sample_rate, config.sample_rate.0);
+            for s in resampled {
+                q.push_back(s);
+            }
+          } else {
+            for s in chunk.data {
+              q.push_back(s);
+            }
           }
         }
 

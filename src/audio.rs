@@ -122,3 +122,23 @@ pub fn mix_to_mono(data: &[f32], channels: u16) -> Vec<f32> {
     }
     mono
 }
+
+
+pub fn resample_to(
+    input: &[f32],
+    channels: u16,
+    in_sr: u32,
+    out_sr: u32,
+) -> Vec<f32> {
+  if in_sr == out_sr || input.is_empty() {
+    return input.to_vec();
+  }
+  // mono
+  if channels == 1 {
+    resample_linear(input, in_sr, out_sr)
+  }
+  // interleaved
+  else {
+    resample_interleaved_linear(input, channels, in_sr, out_sr)
+  }
+}
