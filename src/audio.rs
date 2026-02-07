@@ -11,57 +11,49 @@ use cpal::traits::{DeviceTrait, HostTrait};
 // ------------------------------------------------------------------
 
 pub fn pick_input_stream(host: &cpal::Host) -> Result<(cpal::Device, cpal::Stream), String> {
-    let devices = host.input_devices().map_err(|e| format!("Can't list input devices: {e}"))?;
+    let err = || {
+        "\n ❌ No usable microphone stream could be opened.\n".to_string()
+            + "    • On macOS: System Settings → Privacy & Security → Microphone → allow your app/Terminal\n"
+            + "    • Also check System Settings → Sound → Input\n"
+    };
 
-    for dev in devices {
-        let cfg = match dev.default_input_config() {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+    let dev = host.default_input_device().ok_or_else(err)?;
 
-        let _stream = match dev.build_input_stream(
+    let cfg = dev.default_input_config().map_err(|_| err())?;
+
+    let stream = dev
+        .build_input_stream(
             &cfg.clone().into(),
             |_data: &[f32], _| {},
             |_err| {},
             None,
-        ) {
-            Ok(s) => return Ok((dev, s)),
-            Err(_) => continue,
-        };
-    }
+        )
+        .map_err(|_| err())?;
 
-    Err(
-        "\n ❌ No usable microphone stream could be opened.\n".to_string()
-      + "    • On macOS: System Settings → Privacy & Security → Microphone → allow your app/Terminal\n"
-      + "    • Also check System Settings → Sound → Input\n",
-    )
+    Ok((dev, stream))
 }
 
 
 pub fn pick_output_stream(host: &cpal::Host) -> Result<(cpal::Device, cpal::Stream), String> {
-    let devices = host.output_devices().map_err(|e| format!("Can't list output devices: {e}"))?;
+    let err = || {
+        "\n ❌ No usable output stream could be opened.".to_string()
+            + "   • On macOS: System Settings → Sound → Output (select a device)"
+    };
 
-    for dev in devices {
-        let cfg = match dev.default_output_config() {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+    let dev = host.default_output_device().ok_or_else(err)?;
 
-        let _stream = match dev.build_output_stream(
+    let cfg = dev.default_output_config().map_err(|_| err())?;
+
+    let stream = dev
+        .build_output_stream(
             &cfg.clone().into(),
             |data: &mut [f32], _| data.fill(0.0),
             |_err| {},
             None,
-        ) {
-            Ok(s) => return Ok((dev, s)),
-            Err(_) => continue,
-        };
-    }
+        )
+        .map_err(|_| err())?;
 
-    Err(
-      "\n ❌ No usable output stream could be opened.".to_string()
-    + "   • On macOS: System Settings → Sound → Output (select a device)"
-    )
+    Ok((dev, stream))
 }
 
 
