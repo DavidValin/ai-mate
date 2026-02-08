@@ -6,6 +6,8 @@ ai mate is a terminal based audio conversation system between a user and an AI m
 - speech to text (stt): whisper
 - text to speech (tts): OpenTTS
 
+See it in action: [Demo](https://www.youtube.com/watch?v=x0RAX3-PLnE)
+
 ## How it works
 
 `RECORD -> STT -> LLM -> REPLY -> TTS -> PLAYBACK`
@@ -49,7 +51,7 @@ cargo install --path .
 Otherwise fetch, build and install it using cargo:
 
 ```
- `cargo install ai-mate`
+ cargo install ai-mate
 ```
 
 The `ai-mate` program will be under `~/.cargo/bin`. Make sure this directory is added to your $PATH, otherwise add it.
@@ -79,7 +81,7 @@ ai-mate \
 You can just override a specific variable, for example:
 
 ```
-ai-mate --ollama-model "llama3.2:3b" --language es
+ai-mate --ollama-model "llama3.2:3b" --language es 
 ```
 
 If you need help:
