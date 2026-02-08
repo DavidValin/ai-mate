@@ -24,44 +24,42 @@ ai mate is a terminal based audio conversation system between a user and an AI m
 
 Install dependencies:
 
-- Docker: `https://docs.docker.com/engine/install` (needed for STT)
-- Ollama: `https://ollama.com/download` (needed for ai responses)
-- Whisper.cpp: `https://github.com/ggml-org/whisper.cpp`, see 'Quick Start' (needed for TTS)
-- Rust: `https://rustup.rs` (needed to compile ai-mate from source)
+- Download Docker: `https://docs.docker.com/engine/install` (needed for STT)
+- Download Ollama: `https://ollama.com/download` (needed for ai responses)
+- Pull an ollama model: `ollama pull llama3.2:3b` (or the model you want to use)
+- Download Whisper.cpp: `https://github.com/ggml-org/whisper.cpp`, see 'Quick Start' (needed for TTS)
+- Download Whisper model (stt): `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin?download=true`
+- (Only Windows) Install Windows Terminal (which supports emojis): `https://apps.microsoft.com/detail/9n0dx20hk701` (use this terminal to run ai-mate)
+- (Only MacOS / Linux) Install `pkg-config` and alsa development libraries (called `libasound2-dev` or `alsa-lib-devel` or `alsa-lib`)
 
-Download models:
+### Option A - Download a built binary for your operating system
 
-- llm model: `ollama pull llama3.2:3b` (or the model you want to use)
-- whisper model (stt): `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin?download=true`
+You have 2 options:
 
-Windows only:
+- Using cargo: `cargo install ai-mate`
+- Download from `https://github.com/DavidValin/ai-mate/releases`
 
-- install the Windows Terminal (that supports emojis): `https://apps.microsoft.com/detail/9n0dx20hk701`
+Move the binary to a folder in your $PATH so you can use `ai-mate` command anywhere
 
-On Linux / MacOS:
-
-- Install alsa development libraries: called `libasound2-dev` or `alsa-lib-devel` or `alsa-lib`
-- Install `pkg-config`
-
-Build and install ai-mate:
+### Option B - Build ai-mate from source
 
 ```
 cargo build --release
 cargo install --path .
 ```
 
-This installs the program called `ai-mate` under `~/.cargo/bin`. Make sure this directory is added to your path, otherwise add it.
+The `ai-mate` program will be under `~/.cargo/bin`. Make sure this directory is added to your $PATH, otherwise add it.
 
 ## How to use it
 
-Before starting, make sure ollama and OpenTTS are running:
+Before starting, make sure ollama and OpenTTS are both running and your microphone and speakers ready:
 
-- Terminal 1: `ollama serve`
-- Terminal 2: `docker run --rm --platform=linux/amd64 -p 5500:5500 synesthesiam/opentts:all` (it will pull the image the first time). Adjust the platform as needed depending on your hardware. This container contains all the voices for all languages.
+- `ollama serve`
+- `docker run --rm --platform=linux/amd64 -p 5500:5500 synesthesiam/opentts:all` (it will pull the image the first time). Adjust the platform as needed depending on your hardware. This container contains within all the voices for all languages.
 
 To start the conversation follow this instructions:
 
-Below is the default parameters, which you can override, example:
+Below are the default parameters, which you can override, example:
 
 ```
 ai-mate \
@@ -77,7 +75,7 @@ ai-mate \
 You can just override a specific variable, for example:
 
 ```
-ai-mate --ollama-model "llama3.2:3b --language es"
+ai-mate --ollama-model "llama3.2:3b" --language es --whisper-model-path "$HOME/ggml-medium.bin"
 ```
 
 If you need help:
@@ -91,37 +89,49 @@ ai-mate --help
 By default everything run in english (speech recognition and audio playback). The next languages are supported:
 
 ```
-Language ID         DEFAULT VOICE                              LANGUAGE NAME
-____________________________________________________________________________
-
-ar                  festival:ara_norm_ziad_hts                 arabic
-bn                  flite:cmu_indic_ben_rm                     bengali
-ca                  festival:upc_ca_ona_hts                    catalan
-cs                  festival:czech_machac                      czech
-de                  glow-speak:de_thorsten                     german
-el                  glow-speak:el_rapunzelina                  greek
-en                  larynx:cmu_fem-glow_tts                    english
-es                  larynx:karen_savage-glow_tts               spanish
-fi                  glow-speak:fi_harri_tapani_ylilammi        finnish
-fr                  larynx:gilles_le_blanc-glow_tts            french
-gu                  flite:cmu_indic_guj_ad                     gujarati
-hi                  flite:cmu_indic_hin_ab                     hindi
-hu                  glow-speak:hu_diana_majlinger              hungarian
-it                  larynx:riccardo_fasol-glow_tts             italian
-ja                  coqui-tts:ja_kokoro                        japanese
-kn                  flite:cmu_indic_kan_plv                    kannada
-ko                  glow-speak:ko_kss                          korean
-mr                  flite:cmu_indic_mar_aup                    marathi
-nl                  glow-speak:nl_rdh                          dutch
-pa                  flite:cmu_indic_pan_amp                    punjabi
-ru                  glow-speak:ru_nikolaev                     russian
-sv                  glow-speak:sv_talesyntese                  swedish
-sw                  glow-speak:sw_biblia_takatifu              swahili
-ta                  flite:cmu_indic_tam_sdr                    tamil
-te                  marytts:cmu-nk-hsmm                        telugu
-tr                  marytts:dfki-ot-hsmm                       turkish
-zh                  coqui-tts:zh_baker                         mandarin chinese
+ID         LANGUAGE              DEFAULT VOICE
+____________________________________________________________
+ar         arabic                festival:ara_norm_ziad_hts                 
+bn         bengali               flite:cmu_indic_ben_rm
+ca         catalan               festival:upc_ca_ona_hts
+cs         czech                 festival:czech_machac
+de         german                glow-speak:de_thorsten
+el         greek                 glow-speak:el_rapunzelina
+en         english               larynx:cmu_fem-glow_tts
+es         spanish               larynx:karen_savage-glow_tts
+fi         finnish               glow-speak:fi_harri_tapani_ylilammi
+fr         french                larynx:gilles_le_blanc-glow_tts
+gu         gujarati              flite:cmu_indic_guj_ad
+hi         hindi                 flite:cmu_indic_hin_ab
+hu         hungarian             glow-speak:hu_diana_majlinger
+it         italian               larynx:riccardo_fasol-glow_tts
+ja         japanese              coqui-tts:ja_kokoro
+kn         kannada               flite:cmu_indic_kan_plv
+ko         korean                glow-speak:ko_kss
+mr         marathi               flite:cmu_indic_mar_aup
+nl         dutch                 glow-speak:nl_rdh
+pa         punjabi               flite:cmu_indic_pan_amp
+ru         russian               glow-speak:ru_nikolaev
+sv         swedish               glow-speak:sv_talesyntese
+sw         swahili               glow-speak:sw_biblia_takatifu
+ta         tamil                 flite:cmu_indic_tam_sdr
+te         telugu                marytts:cmu-nk-hsmm
+tr         turkish               marytts:dfki-ot-hsmm
+zh         mandarin chinese      coqui-tts:zh_baker
 ```
 
-Feel free to contribute using a PR.
+## Tricks
+
+For conveniance create bash aliases with the options you want to use, example:
+
+```
+# English
+alias ai-mate_qwen='ai-mate --ollama-model "qwen3:30b" --whisper-model-path "$HOME/ggml-medium.bin"'
+alias ai-mate_llama='ai-mate --ollama-model "llama3:8b" --whisper-model-path "$HOME/ggml-medium.bin"'
+
+# Spanish
+alias ai-mate_es_qwen='ai-mate --ollama-model "qwen3:30b" --language es --whisper-model-path "$HOME/ggml-medium.bin"'
+alias ai-mate_es_llama='ai-mate --ollama-model "llama3:8b" --language es --whisper-model-path "$HOME/ggml-medium.bin"'
+```
+
 Have fun o:)
