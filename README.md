@@ -1,5 +1,3 @@
-# ai-mate
-
 ai mate is a terminal based audio conversation system between a user and an AI model that runs locally in your machine.
 
 - llm system: ollama
