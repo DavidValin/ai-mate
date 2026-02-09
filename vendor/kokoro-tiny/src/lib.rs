@@ -25,8 +25,6 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-
-use espeak_rs::text_to_phonemes;
 use ndarray::{ArrayBase, IxDyn, OwnedRepr};
 use ndarray_npy::NpzReader;
 use ort::{
@@ -44,7 +42,7 @@ const MODEL_URL: &str = "https://github.com/thewh1teagle/kokoro-onnx/releases/do
 const VOICES_URL: &str = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin";
 const SAMPLE_RATE: u32 = 24000;
 const DEFAULT_VOICE: &str = "af_sky";
-const DEFAULT_SPEED: f32 = 1.0;
+const DEFAULT_SPEED: f32 = 0.75;
 
 // Get cache directory for shared model storage (Hue's suggestion!)
 fn get_cache_dir() -> PathBuf {
