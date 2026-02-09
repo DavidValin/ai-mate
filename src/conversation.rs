@@ -4,8 +4,8 @@
 
 use crossbeam_channel::{select, Receiver, Sender};
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, Mutex,
+  atomic::{AtomicU64, Ordering},
+  Arc, Mutex,
 };
 
 // API
@@ -32,7 +32,7 @@ pub fn conversation_thread(
       recv(rx_utt) -> msg => {
         let Ok(utt) = msg else { break };
         let pcm: Vec<i16> = utt.data.iter().map(|s| ((*s).clamp(-1.0, 1.0) * (i16::MAX as f32)) as i16).collect();
-        let user_text = crate::stt::whisper_transcribe(&pcm, utt.sample_rate, utt.channels, "")?;
+        let user_text = crate::stt::whisper_transcribe(&pcm, utt.sample_rate, &args.resolved_whisper_model_path())?;
         let prompt = format!("{}\n{}: {}", conversation_history, crate::ui::USER_LABEL, user_text);
         let user_text = user_text.trim().to_string();
         if user_text.is_empty() {
@@ -91,8 +91,9 @@ pub fn conversation_thread(
             crate::ui::ui_println(&print_lock, &status_line, &phrase);
             conversation_history.push_str(&format!("{}: {}\n", crate::ui::ASSIST_LABEL, phrase));
 
-            let outcome = match crate::tts::speak_via_opentts(
+            let outcome = match crate::tts::speak(
               &strip_special_chars(&phrase),
+              args.tts.as_str(),
               args.opentts_base_url.as_str(),
               args.language.as_str(),
               voice,
@@ -104,12 +105,11 @@ pub fn conversation_thread(
             ) {
               Ok(o) => o,
               Err(e) => {
-                crate::ui::ui_println(&print_lock, &status_line, &format!("TTS error: {e}"));
+                crate::log::log("error", &format!("TTS error: {}", e));
                 interrupted = true;
                 return;
               }
             };
-
 
             if outcome == crate::tts::SpeakOutcome::Interrupted
               || (interrupt_counter.load(Ordering::SeqCst) != my_interrupt && ui.playing.load(Ordering::Relaxed))
@@ -123,7 +123,7 @@ pub fn conversation_thread(
           }
         };
 
-        let _ = crate::llm::ollama_stream_response_into(
+        match crate::llm::ollama_stream_response_into(
           &prompt,
           args.ollama_url.as_str(),
           args.ollama_model.as_str(),
@@ -131,7 +131,14 @@ pub fn conversation_thread(
           interrupt_counter.clone(),
           my_interrupt,
           &mut on_piece,
-        );
+        ) {
+          Ok(()) => {},
+          Err(e) => {
+            crate::log::log("error", &format!("Ollama error: {}", e));
+            // skip this turn and continue
+            continue;
+          }
+        }
 
         if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
           // interruption detected, skip remaining speech
@@ -149,8 +156,9 @@ pub fn conversation_thread(
         if let Some(phrase) = speaker.flush() {
           crate::ui::ui_println(&print_lock, &status_line, &phrase);
           conversation_history.push_str(&format!("{}: {}\n", crate::ui::ASSIST_LABEL, phrase));
-          let outcome = crate::tts::speak_via_opentts(
+          let outcome = match crate::tts::speak(
             &strip_special_chars(&phrase),
+            args.tts.as_str(),
             args.opentts_base_url.as_str(),
             args.language.as_str(),
             voice,
@@ -159,7 +167,14 @@ pub fn conversation_thread(
             stop_all_rx.clone(),
             interrupt_counter.clone(),
             my_interrupt,
-          )?;
+          ) {
+            Ok(o) => o,
+            Err(e) => {
+              crate::log::log("error", &format!("TTS error: {}", e));
+              // skip this turn and continue
+              continue;
+            }
+          };
 
           if outcome == crate::tts::SpeakOutcome::Interrupted
             || interrupt_counter.load(Ordering::SeqCst) != my_interrupt
