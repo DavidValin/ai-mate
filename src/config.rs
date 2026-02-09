@@ -3,8 +3,8 @@
 // ------------------------------------------------------------------
 
 use clap::Parser;
-use cpal::Device;
 use cpal::traits::DeviceTrait;
+use cpal::Device;
 
 // API
 // ------------------------------------------------------------------
@@ -44,6 +44,10 @@ pub struct Args {
   /// Language code for TTS and Whisper (e.g., en, es, de)
   #[arg(long, default_value = "en", env = "LANGUAGE")]
   pub language: String,
+
+  /// Text-to-speech backend (e.g., kokoro, other)
+  #[arg(long, default_value = "kokoro", env = "TTS")]
+  pub tts: String,
 
   /// Peak threshold for detecting user speech while assistant is speaking (0..1)
   #[arg(long, default_value_t = SOUND_THRESHOLD_PEAK_DEFAULT, env = "SOUND_THRESHOLD_PEAK")]
