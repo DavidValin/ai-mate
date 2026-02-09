@@ -2,11 +2,12 @@
 //  LLM handling
 // ------------------------------------------------------------------
 
-
-
-use crossbeam_channel::{Receiver};
-use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+use crossbeam_channel::Receiver;
 use std::io::{BufRead, BufReader};
+use std::sync::{
+  atomic::{AtomicU64, Ordering},
+  Arc,
+};
 
 // API
 // ------------------------------------------------------------------
@@ -27,6 +28,7 @@ pub fn ollama_stream_response_into(
     stream: bool,
   }
 
+  crate::log::log("info", "Calling ollama (LLM system)");
   let client = reqwest::blocking::Client::new();
   let resp = client
     .post(ollama_url)
