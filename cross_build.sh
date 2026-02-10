@@ -217,6 +217,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     perl \
     libssl-dev \
     libasound2-dev \
+    libxdo-dev \
+    libx11-dev \
  && rm -rf /var/lib/apt/lists/*
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -270,6 +272,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     perl \
     libssl-dev \
     libasound2-dev \
+    libxdo-dev \
+    libx11-dev \
  && rm -rf /var/lib/apt/lists/*
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
