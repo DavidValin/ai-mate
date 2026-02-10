@@ -1255,7 +1255,7 @@ dependencies = [
 [[package]]
 name = "kokoro-tiny"
 version = "0.2.0"
-source = "git+https://github.com/DavidValin/kokoro-tiny.git?rev=9f6a047#9f6a047ca6d629950695c6d25d24c2733c4b6bdb"
+source = "git+https://github.com/DavidValin/kokoro-tiny.git?rev=bdf5788#bdf5788a0b2d654b3726894cf95922f97c19bdf7"
 dependencies = [
  "atty",
  "clap",
