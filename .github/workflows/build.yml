@@ -7,152 +7,124 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ----------------- Linux -----------------
   build-linux:
-    name: Build Linux Binaries
+    name: Build Linux
     runs-on: ubuntu-latest
     strategy:
       matrix:
         arch: [amd64, arm64]
+    env:
+      BIN_NAME: ai-mate
+      DO_PACKAGE: 1
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Set up QEMU for multiarch
-        uses: docker/setup-qemu-action@v2
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-linux-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y curl tar xz-utils
+      - name: Prepare Artifacts Dir
+        run: mkdir -p dist packages
 
-      - name: Run Linux build
+      - name: Build Linux
         run: |
           chmod +x ./build_linux.sh
           ./build_linux.sh --arch ${{ matrix.arch }}
 
-      - name: Upload Linux CPU variant
+      - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}-cpu
-          path: dist/ai-mate-*-linux-${{ matrix.arch }}-cpu
+          name: linux-${{ matrix.arch }}-binaries
+          path: dist/*
 
-      - name: Upload Linux OpenBLAS variant
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    env:
+      BIN_NAME: ai-mate
+      DO_PACKAGE: 1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-macos-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Prepare Artifacts Dir
+        run: mkdir -p dist packages
+
+      - name: Build macOS
+        run: |
+          chmod +x ./build_macos.sh
+          ./build_macos.sh
+
+      - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}-openblas
-          path: dist/ai-mate-*-linux-${{ matrix.arch }}-openblas
+          name: macos-universal-binaries
+          path: dist/*
 
-      - name: Upload Linux Vulkan variant
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-${{ matrix.arch }}-vulkan
-          path: dist/ai-mate-*-linux-${{ matrix.arch }}-vulkan
-
-      - name: Upload Linux CUDA variant (amd64 only)
-        if: matrix.arch == 'amd64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-amd64-cuda
-          path: dist/ai-mate-*-linux-amd64-cuda
-
-      - name: Upload Linux ROCm variant (amd64 only)
-        if: matrix.arch == 'amd64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-amd64-rocm
-          path: dist/ai-mate-*-linux-amd64-rocm
-
-  # ----------------- Windows -----------------
   build-windows:
-    name: Build Windows Binaries
+    name: Build Windows
     runs-on: windows-latest
     strategy:
       matrix:
-        arch: [x86_64, arm64]
+        arch: [amd64, arm64]
+    env:
+      BIN_NAME: ai-mate
+      DO_PACKAGE: 1
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           profile: minimal
           override: true
 
-      - name: Run Windows build
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            C:\Users\runneradmin\.cargo\registry
+            C:\Users\runneradmin\.cargo\git
+          key: cargo-windows-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Prepare Artifacts Dir
+        run: mkdir dist packages
+
+      - name: Build Windows
         run: |
-          set CI=1
-          powershell -Command "chmod +x build_windows.ps1; ./build_windows.ps1"
+          powershell ./build_windows.ps1 -Arch ${{ matrix.arch }}
 
-      - name: Upload Windows CPU variant
+      - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ matrix.arch }}-cpu
-          path: dist/ai-mate-*-windows-${{ matrix.arch }}-cpu.exe
-
-      - name: Upload Windows OpenBLAS variant
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-${{ matrix.arch }}-openblas
-          path: dist/ai-mate-*-windows-${{ matrix.arch }}-openblas.exe
-
-      - name: Upload Windows Vulkan variant
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-${{ matrix.arch }}-vulkan
-          path: dist/ai-mate-*-windows-${{ matrix.arch }}-vulkan.exe
-
-      - name: Upload Windows CUDA variant (x86_64 only)
-        if: matrix.arch == 'x86_64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-x86_64-cuda
-          path: dist/ai-mate-*-windows-x86_64-cuda.exe
-
-      - name: Upload Windows ROCm variant (x86_64 only)
-        if: matrix.arch == 'x86_64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-x86_64-rocm
-          path: dist/ai-mate-*-windows-x86_64-rocm.exe
-
-  # ----------------- macOS -----------------
-  build-macos:
-    name: Build macOS Binaries
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Run macOS build
-        run: |
-          chmod +x ./build_macos.sh
-          ./build_macos.sh --arch ${{ matrix.arch }}
-
-      - name: Upload macOS CPU variant
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-${{ matrix.arch }}-cpu
-          path: dist/ai-mate-*-macos-${{ matrix.arch }}-cpu
-
-      - name: Upload macOS OpenBLAS variant
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-${{ matrix.arch }}-openblas
-          path: dist/ai-mate-*-macos-${{ matrix.arch }}-openblas
-
-      - name: Upload macOS Vulkan variant
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-${{ matrix.arch }}-vulkan
-          path: dist/ai-mate-*-macos-${{ matrix.arch }}-vulkan
+          name: windows-${{ matrix.arch }}-binaries
+          path: dist/*
