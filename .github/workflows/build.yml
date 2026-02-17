@@ -90,6 +90,16 @@ jobs:
           done
 
       # ----------------------
+      # Increase Swap to avoid SIGKILL
+      - name: Increase Swap
+        if: matrix.arch == 'amd64'
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
+      # ----------------------
       # Build CPU variant (OpenBLAS static)
       - name: Build CPU Variant
         run: |
@@ -117,6 +127,8 @@ jobs:
           WITH_CUDA=1 WITH_ROCM=0 LINUX_WITH_OPENBLAS=1 LINUX_WITH_VULKAN=1 ./build_linux.sh --arch ${{ matrix.arch }}
           mkdir -p ./dist/cuda
           mv ./dist/* ./dist/cuda/
+        env:
+          CARGO_BUILD_JOBS: 2
 
       - name: Upload CUDA Artifact
         if: matrix.arch == 'amd64'
@@ -124,6 +136,7 @@ jobs:
         with:
           name: linux-amd64-cuda
           path: ./dist/cuda
+
 
   # ----------------------
   # Windows Builds
