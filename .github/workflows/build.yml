@@ -69,12 +69,13 @@ jobs:
   macos:
     name: macOS Build
     runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Sequoia
-        run: brew install sequoia
-
+      # No sequoia install; macOS builds now use local script
       - name: Build macOS
         run: |
           chmod +x ./build_macos.sh
@@ -83,7 +84,7 @@ jobs:
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: macos
+          name: macos-${{ matrix.arch }}
           path: ./dist
 
 # ----------------------
@@ -105,7 +106,7 @@ jobs:
 
       - name: Build Windows
         working-directory: ${{ github.workspace }}
-        run: pwsh -File ./build_windows.ps1 -Arch ${{ matrix.arch }}
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File build_windows.ps1 -Arch ${{ matrix.arch }}
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
