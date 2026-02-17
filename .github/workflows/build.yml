@@ -197,48 +197,55 @@ jobs:
         run: |
           setlocal EnableDelayedExpansion
 
-          REM Set Rust target per architecture
+          REM ----- Define project directories -----
+          set PROJECT_ROOT=%CD%
+          set TARGET_DIR=%PROJECT_ROOT%\target-cross
+          set DIST_DIR=%PROJECT_ROOT%\dist
+
+          REM ----- Set Rust target per architecture -----
           if "%PROCESSOR_ARCHITECTURE%"=="AMD64" set RUST_TARGET=x86_64-pc-windows-msvc
           if "%PROCESSOR_ARCHITECTURE%"=="ARM64" set RUST_TARGET=aarch64-pc-windows-msvc
 
-          REM Set variants
+          REM ----- Define variants -----
           if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
-              set VARIANTS=WIN_WITH_OPENBLAS=1 WIN_WITH_CUDA=1
+              set VARIANTS=cpu cuda
           ) else (
-              set VARIANTS=WIN_WITH_OPENBLAS=1
+              set VARIANTS=cpu
               echo Skipping CUDA on ARM64
           )
 
-          REM Build each variant
+          REM ----- Build each variant -----
           for %%v in (%VARIANTS%) do (
-              if "%%v"=="WIN_WITH_OPENBLAS=1" (
-                  set ART_NAME=cpu
-                  set WIN_WITH_OPENBLAS=1
-              ) else (
-                  set ART_NAME=cuda
-                  set WIN_WITH_CUDA=1
-              )
+              set ART_NAME=%%v
 
-              REM Skip CUDA on ARM64
+              REM Set env vars for the batch script
+              set WIN_WITH_OPENBLAS=0
+              set WIN_WITH_CUDA=0
+              if "%%v"=="cpu" set WIN_WITH_OPENBLAS=1
+              if "%%v"=="cuda" set WIN_WITH_CUDA=1
+
+              REM Skip CUDA entirely on ARM64
               if "%PROCESSOR_ARCHITECTURE%"=="ARM64" if "!ART_NAME!"=="cuda" (
                   echo Skipping CUDA variant on ARM64
               ) else (
-                  REM Clear folder
-                  if exist dist\!ART_NAME! rmdir /s /q dist\!ART_NAME!
-                  mkdir dist\!ART_NAME!
+                  REM Clear dist folder
+                  if exist %DIST_DIR%\!ART_NAME! rmdir /s /q %DIST_DIR%\!ART_NAME!
+                  mkdir %DIST_DIR%\!ART_NAME!
 
-                  echo Building variant %%v in MSVC environment
+                  REM Build variant
+                  echo Building variant %%v...
                   call build_windows.bat
 
-                  REM Copy built files
+                  REM Copy built binaries
                   if exist "%TARGET_DIR%\!ART_NAME!\*" (
                       echo Copying built files to dist\!ART_NAME!
-                      xcopy /Y /I /E "%TARGET_DIR%\!ART_NAME!\*" "dist\!ART_NAME!\"
+                      xcopy /Y /I /E "%TARGET_DIR%\!ART_NAME!\*" "%DIST_DIR%\!ART_NAME!\"
                   ) else (
                       echo WARNING: No files produced for variant %%v
                   )
               )
           )
+
 
 
       # ----------------------
