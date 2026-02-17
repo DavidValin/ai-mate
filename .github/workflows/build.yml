@@ -7,7 +7,7 @@ on:
   pull_request:
     branches:
       - main
- 
+
 jobs:
   # ----------------------
   # Linux Builds
@@ -128,10 +128,10 @@ jobs:
           for %%v in (%VARIANTS%) do (
             echo Building variant %%v
             call build_windows.bat %%v
-            set "VARIANT_NAME=%%v"
-            set "VARIANT_NAME=!VARIANT_NAME:=_!"
-            mkdir dist\!VARIANT_NAME!
-            move dist\* dist\!VARIANT_NAME!
-            echo Upload artifact for variant !VARIANT_NAME!
-            gh workflow upload-artifact dist\!VARIANT_NAME! name=windows-${{ matrix.arch }}-!VARIANT_NAME!
+            REM Map to clean artifact names
+            if "%%v"=="WIN_WITH_OPENBLAS=1" (set ART_NAME=cpu) else (set ART_NAME=cuda)
+            mkdir dist\!ART_NAME!
+            move dist\* dist\!ART_NAME!
+            echo Upload artifact for variant !ART_NAME!
+            gh workflow upload-artifact dist\!ART_NAME! name=windows-${{ matrix.arch }}-!ART_NAME!
           )
