@@ -80,9 +80,9 @@ jobs:
         with:
           arch: x64
 
-      - name: Build Windows
-        run: |
-          call build_windows.bat
+      - name: Build Windows (x64 MSVC)
+        shell: cmd
+        run: build_windows.bat
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
