@@ -33,6 +33,10 @@ jobs:
         with:
           path: ~/.cargo/git
           key: cargo-git-linux-amd64-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions/cache@v3
+        with:
+          path: target-cross/linux-amd64-*
+          key: cargo-target-linux-amd64-${{ hashFiles('**/Cargo.lock') }}
 
       # ----------------------
       # CUDA SDK cache & install
@@ -140,6 +144,61 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ----------------------
+      # Rust caches (ARM64)
+      - uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: cargo-registry-linux-arm64-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: cargo-git-linux-arm64-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions/cache@v3
+        with:
+          path: target-cross/linux-arm64-*
+          key: cargo-target-linux-arm64-${{ hashFiles('**/Cargo.lock') }}
+
+      # ----------------------
+      # Model assets cache
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/k
+            ~/.whisper-models
+          key: model-assets-v1
+
+      - name: Download Model Assets
+        run: |
+          mkdir -p ~/.cache/k ~/.whisper-models
+          for file in 0.bin 0.onnx; do
+            [ -f ~/.cache/k/$file ] || curl -L -o ~/.cache/k/$file https://github.com/DavidValin/kokoro-tiny/raw/main/models/$file
+          done
+          for model in ggml-small ggml-tiny; do
+            [ -f ~/.whisper-models/${model}.bin ] || curl -L -o ~/.whisper-models/${model}.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${model}.bin
+          done
+
+      # ----------------------
+      # Increase Swap
+      - name: Increase Swap
+        run: |
+          if swapon --show | grep -q '/swapfile'; then
+            echo "Swap already enabled"
+          else
+            echo "Creating swap..."
+            sudo swapoff -a || true
+            sudo rm -f /swapfile || true
+            sudo fallocate -l 8G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+          fi
+          echo "Current swap:"
+          swapon --show
+          free -h
+
+      # ----------------------
+      # Build CPU variant
       - name: Build CPU Variant
         run: |
           chmod +x ./build_linux.sh
