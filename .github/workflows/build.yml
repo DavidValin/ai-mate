@@ -1,0 +1,87 @@
+name: Build AI-Mate Multi-Arch with Cache
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        arch: [x64, arm64]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------
+      # Linux & MacOS: Ensure Docker
+      - name: Check Docker (Linux & MacOS)
+        if: matrix.os != 'windows-latest'
+        run: docker --version
+
+      # -----------------------------
+      # Restore cache for models
+      - name: Restore model cache
+        uses: actions/cache@v4
+        with:
+          path: ./models
+          key: ai-mate-models-${{ matrix.os }}-${{ matrix.arch }}
+          restore-keys: |
+            ai-mate-models-${{ matrix.os }}-
+
+      # -----------------------------
+      # Download build script
+      - name: Download build script
+        run: |
+          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+            curl -o build.sh https://raw.githubusercontent.com/DavidValin/ai-mate/refs/heads/main/build_linux.sh
+            chmod +x build.sh
+          elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+            curl -o build.sh https://raw.githubusercontent.com/DavidValin/ai-mate/refs/heads/main/build_macos.sh
+            chmod +x build.sh
+          elif [ "${{ matrix.os }}" == "windows-latest" ]; then
+            curl -o build.bat https://raw.githubusercontent.com/DavidValin/ai-mate/refs/heads/main/build_windows.bat
+
+      # -----------------------------
+      # Run Linux build
+      - name: Build on Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: ./build.sh --arch ${{ matrix.arch }}
+
+      # -----------------------------
+      # Run MacOS build
+      - name: Build on MacOS
+        if: matrix.os == 'macos-latest'
+        run: ./build.sh --arch ${{ matrix.arch }}
+
+      # -----------------------------
+      # Run Windows build
+      - name: Build on Windows
+        if: matrix.os == 'windows-latest'
+        shell: cmd
+        run: |
+          set WIN_WITH_VULKAN=0
+          build_windows.bat --arch %ARCH%
+        env:
+          ARCH: ${{ matrix.arch }}
+
+      # -----------------------------
+      # Save model cache after build
+      - name: Save model cache
+        uses: actions/cache@v4
+        with:
+          path: ./models
+          key: ai-mate-models-${{ matrix.os }}-${{ matrix.arch }}
+
+      # -----------------------------
+      # Upload artifacts per OS/arch
+      - name: Upload built binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-mate-${{ matrix.os }}-${{ matrix.arch }}
+          path: ./dist
