@@ -1,98 +1,97 @@
-name: Build AI-Mate
+name: CI Build
 
 on:
   push:
-    branches:
-      - main
-      - ci-test
+    branches: [ main ]
   pull_request:
 
 jobs:
-  build:
+  setup-rust:
+    runs-on: ubuntu-latest
+    outputs:
+      rust-cache-key: ${{ steps.cache-crates.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@v3
+
+      # Rust toolchain setup
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      # Cache Rust crates
+      - name: Cache Rust crates
+        id: cache-crates
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: rust-crates-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+  build-linux-amd64:
+    needs: setup-rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: ~/.cache/k
+          key: k-cache-${{ runner.os }}-amd64
+      - uses: actions/cache@v3
+        with:
+          path: ~/.whisper-models
+          key: whisper-models-${{ runner.os }}-amd64
+      - name: Build Linux amd64
+        run: |
+          chmod +x ./build_linux.sh
+          ./build_linux.sh --arch amd64
+
+      - name: Upload Linux amd64 artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-amd64
+          path: dist/
+
+  build-linux-arm64:
+    needs: setup-rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: rust-crates-${{ runner.os }}-arm64-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Rust target for ARM64
+        run: rustup target add aarch64-unknown-linux-gnu
+      - name: Build Linux ARM64
+        run: |
+          mkdir -p target-cross/linux-arm64-cpu/release
+          cargo build --release --target aarch64-unknown-linux-gnu --no-default-features --features whisper-logs
+          cp target/aarch64-unknown-linux-gnu/release/ai-mate dist/ai-mate-0.3.0-linux-arm64
+      - name: Upload Linux ARM64 artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-arm64
+          path: dist/
+
+  build-windows:
+    needs: setup-rust
+    runs-on: windows-latest
     strategy:
       matrix:
-        include:
-          # Linux
-          - os: ubuntu-latest
-            arch: x64
-          - os: ubuntu-latest
-            arch: arm64
-
-          # macOS
-          - os: macos-latest
-            arch: native
-
-          # Windows
-          - os: windows-latest
-            arch: x64
-          - os: windows-latest
-            arch: arm64
-
-    runs-on: ${{ matrix.os }}
-
+        target: [x86_64-pc-windows-msvc, aarch64-pc-windows-msvc]
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # -------------------------
-      # LINUX
-      # -------------------------
-      - name: Verify Docker (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: docker --version
-
-      - name: Download Linux build script
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
+      - uses: actions/checkout@v3
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+      - name: Build Windows target
         run: |
-          curl -L -o build_linux.sh https://raw.githubusercontent.com/DavidValin/ai-mate/refs/heads/main/build_linux.sh
-          chmod +x build_linux.sh
-
-      - name: Build on Linux
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          ./build_linux.sh --arch ${{ matrix.arch }}
-
-      # -------------------------
-      # macOS
-      # -------------------------
-      - name: Download macOS build script
-        if: matrix.os == 'macos-latest'
-        shell: bash
-        run: |
-          curl -L -o build_macos.sh https://raw.githubusercontent.com/DavidValin/ai-mate/refs/heads/main/build_macos.sh
-          chmod +x build_macos.sh
-
-      - name: Build on macOS
-        if: matrix.os == 'macos-latest'
-        shell: bash
-        run: |
-          ./build_macos.sh
-
-      # -------------------------
-      # WINDOWS
-      # -------------------------
-      - name: Download Windows build script
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          curl -L -o build_windows.bat https://raw.githubusercontent.com/DavidValin/ai-mate/refs/heads/main/build_windows.bat
-
-      - name: Build on Windows
-        if: matrix.os == 'windows-latest'
-        shell: cmd
-        run: |
-          set WIN_WITH_VULKAN=0
-          build_windows.bat --arch %ARCH%
-        env:
-          ARCH: ${{ matrix.arch }}
-
-      # -------------------------
-      # Upload Artifacts
-      # -------------------------
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+          cargo build --release --target ${{ matrix.target }} --no-default-features --features whisper-logs
+          copy target\${{ matrix.target }}\release\ai-mate.exe dist\ai-mate-0.3.0-${{ matrix.target }}.exe
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v3
         with:
-          name: ai-mate-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist
+          name: windows-${{ matrix.target }}
+          path: dist/
