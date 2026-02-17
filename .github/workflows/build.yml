@@ -183,17 +183,13 @@ jobs:
           refreshenv
 
       # ----------------------
-      # Setup MSVC environment
-      - name: Setup MSVC Developer Environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: ${{ matrix.arch }}
-
-      # ----------------------
       # Build Windows Variants
       - name: Build Windows Variants
         shell: cmd
         run: |
+          REM ----- Setup MSVC environment -----
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=${{ matrix.arch }}
+
           REM ----- Project directories -----
           set PROJECT_ROOT=%CD%
           set TARGET_DIR=%PROJECT_ROOT%\target-cross
@@ -211,21 +207,17 @@ jobs:
           for %%v in (%VARIANTS%) do (
               set ART_NAME=%%v
 
-              REM ----- Set env vars for batch -----
               set WIN_WITH_OPENBLAS=0
               set WIN_WITH_CUDA=0
               if "%%v"=="cpu" set WIN_WITH_OPENBLAS=1
               if "%%v"=="cuda" set WIN_WITH_CUDA=1
 
-              REM ----- Clean and prepare dist folder -----
               if exist %DIST_DIR%\!ART_NAME! rmdir /s /q %DIST_DIR%\!ART_NAME!
               mkdir %DIST_DIR%\!ART_NAME!
 
-              REM ----- Call batch script in the same shell -----
               echo Building variant %%v...
               call "%PROJECT_ROOT%\build_windows.bat" %%v
 
-              REM ----- Copy output to dist -----
               if exist "%TARGET_DIR%\%%v\*" (
                   echo Copying built files for %%v...
                   xcopy /Y /I /E "%TARGET_DIR%\%%v\*" "%DIST_DIR%\%%v\"
@@ -233,6 +225,7 @@ jobs:
                   echo WARNING: No files produced for variant %%v
               )
           )
+
 
       # ----------------------
       # Upload artifacts
