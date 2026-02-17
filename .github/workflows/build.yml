@@ -190,41 +190,11 @@ jobs:
           REM ----- Setup MSVC environment -----
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=${{ matrix.arch }}
 
-          REM ----- Project directories -----
-          set PROJECT_ROOT=%CD%
-          set TARGET_DIR=%PROJECT_ROOT%\target-cross
-          set DIST_DIR=%PROJECT_ROOT%\dist
+          REM ----- Pass architecture to batch -----
+          set WIN_ARCH=${{ matrix.arch }}
 
-          REM ----- Define variants per architecture -----
-          if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
-              set VARIANTS=cpu cuda
-          ) else (
-              set VARIANTS=cpu
-              echo Skipping CUDA on ARM64
-          )
-
-          REM ----- Build each variant -----
-          for %%v in (%VARIANTS%) do (
-              set ART_NAME=%%v
-
-              set WIN_WITH_OPENBLAS=0
-              set WIN_WITH_CUDA=0
-              if "%%v"=="cpu" set WIN_WITH_OPENBLAS=1
-              if "%%v"=="cuda" set WIN_WITH_CUDA=1
-
-              if exist %DIST_DIR%\!ART_NAME! rmdir /s /q %DIST_DIR%\!ART_NAME!
-              mkdir %DIST_DIR%\!ART_NAME!
-
-              echo Building variant %%v...
-              call "%PROJECT_ROOT%\build_windows.bat" %%v
-
-              if exist "%TARGET_DIR%\%%v\*" (
-                  echo Copying built files for %%v...
-                  xcopy /Y /I /E "%TARGET_DIR%\%%v\*" "%DIST_DIR%\%%v\"
-              ) else (
-                  echo WARNING: No files produced for variant %%v
-              )
-          )
+          REM ----- Call the batch script (it will handle all variants) -----
+          call "%CD%\build_windows.bat"
 
 
       # ----------------------

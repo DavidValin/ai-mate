@@ -15,11 +15,18 @@ set "OPENBLAS_DIR=%VENDOR_DIR%\openblas"
 set "OPENBLAS_URL=https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30-x64-64.zip"
 set "OPENBLAS_ZIP=%VENDOR_DIR%\openblas.zip"
 
+REM ===== Architecture =====
+if "%WIN_ARCH%"=="" set "WIN_ARCH=x64"
+if /i "%WIN_ARCH%"=="x64" set "TARGET=x86_64-pc-windows-msvc"
+if /i "%WIN_ARCH%"=="arm64" set "TARGET=aarch64-pc-windows-msvc"
+
+echo Building for architecture: %WIN_ARCH%
+echo Rust target: %TARGET%
+
 REM ===== Toolchain Checks =====
 where cl.exe >nul 2>nul
 if errorlevel 1 (
-    echo ERROR: Open "x64 Native Tools Command Prompt for VS" first.
-    exit /b 1
+    echo WARNING: cl.exe not found on PATH. Make sure VsDevCmd.bat was called.
 )
 
 where cmake >nul 2>nul
@@ -67,7 +74,7 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
     cmake -S . ^
           -B "%ESPEAK_BUILD%" ^
           -G "Visual Studio 17 2022" ^
-          -A x64 ^
+          -A %WIN_ARCH% ^
           -DCMAKE_BUILD_TYPE=Release ^
           -DCMAKE_INSTALL_PREFIX="%ESPEAK_INSTALL%" ^
           -DBUILD_SHARED_LIBS=OFF ^
@@ -107,9 +114,6 @@ set "ESPEAKNG_LIB_DIR=%ESPEAK_INSTALL%\lib"
 
 echo Using eSpeak includes: %ESPEAKNG_INCLUDE_DIR%
 echo Using eSpeak lib dir : %ESPEAKNG_LIB_DIR%
-
-REM ===== Rust target =====
-set "TARGET=x86_64-pc-windows-msvc"
 
 REM ===== Build order: CPU → OpenBLAS → Vulkan → CUDA =====
 if "%WIN_WITH_VULKAN%"=="" set "WIN_WITH_VULKAN=1"
