@@ -163,7 +163,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare Directories
-        run: mkdir dist packages
+        run: |
+          mkdir dist
+          mkdir packages
 
       # ----------------------
       # Cache CUDA SDK
