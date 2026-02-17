@@ -75,12 +75,13 @@ jobs:
           mkdir dist
           mkdir packages
 
-      - name: Build Windows in MSVC Console
-        shell: cmd
+      - name: Setup MSVC Developer Environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build Windows
         run: |
-          REM Initialize MSVC x64 environment
-          call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-          REM Run the build batch file
           call build_windows.bat
 
       - name: Upload Windows Artifacts
