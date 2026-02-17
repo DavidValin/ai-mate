@@ -3,31 +3,29 @@ name: Build All Platforms
 on:
   push:
     branches:
-      - '**'          # Trigger on any branch for testing
+      - main
   pull_request:
     branches:
-      - '**'          # Trigger on any PR for testing
+      - main
 
-# ----------------------
-# Linux Builds
-# ----------------------
 jobs:
+  # ----------------------
+  # Linux Builds
+  # ----------------------
   linux:
     name: Linux Build
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [amd64, arm64]   # Run each Linux arch in parallel
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
 
-      # QEMU for multi-arch builds
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: all
 
-      # Rust caching
       - uses: actions/cache@v3
         with:
           path: ~/.cargo/registry
@@ -41,7 +39,6 @@ jobs:
           path: target
           key: cargo-target-linux-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
 
-      # Download model assets
       - name: Download Model Assets
         run: |
           mkdir -p ~/.cache/k ~/.whisper-models
@@ -55,7 +52,7 @@ jobs:
       - name: Build Linux
         run: |
           chmod +x ./build_linux.sh
-          ./build_linux.sh --arch ${{ matrix.arch }}
+          ./build_linux.sh --arch ${{ matrix.arch }} --jobs 2  # limit parallelism to avoid SIGKILL
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
@@ -63,19 +60,18 @@ jobs:
           name: linux-${{ matrix.arch }}
           path: ./dist
 
-# ----------------------
-# macOS Builds
-# ----------------------
+  # ----------------------
+  # macOS Builds
+  # ----------------------
   macos:
     name: macOS Build
     runs-on: macos-latest
     strategy:
       matrix:
-        arch: [arm64]   # Only arm64 works reliably on GitHub runners
+        arch: [x64]  # ARM64 builds must be done locally
     steps:
       - uses: actions/checkout@v4
 
-      # Build macOS
       - name: Build macOS
         run: |
           chmod +x ./build_macos.sh
@@ -87,9 +83,9 @@ jobs:
           name: macos-${{ matrix.arch }}
           path: ./dist
 
-# ----------------------
-# Windows Builds
-# ----------------------
+  # ----------------------
+  # Windows Builds
+  # ----------------------
   windows:
     name: Windows Build
     runs-on: windows-latest
@@ -99,15 +95,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Prepare directories
       - name: Prepare Directories
         run: |
           New-Item -ItemType Directory -Force -Path dist
           New-Item -ItemType Directory -Force -Path packages
 
-      # Build Windows
       - name: Build Windows
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File "${{ github.workspace }}\build_windows.ps1" -Arch ${{ matrix.arch }}
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./build_windows.ps1 -Arch ${{ matrix.arch }}
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
