@@ -29,6 +29,8 @@ jobs:
         with:
           platforms: all
 
+      # ----------------------
+      # Rust caches
       - uses: actions/cache@v3
         with:
           path: ~/.cargo/registry
@@ -42,17 +44,38 @@ jobs:
           path: target
           key: cargo-target-linux-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
 
+      # ----------------------
+      # CUDA cache
+      - name: Cache CUDA SDK (amd64 only)
+        if: matrix.arch == 'amd64'
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/cuda-12.2
+          key: cuda-sdk-12-2
+
       - name: Install CUDA SDK (amd64 only)
         if: matrix.arch == 'amd64'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg software-properties-common
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin
-          sudo mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600
-          sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub
-          sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
-          sudo apt-get update
-          sudo apt-get install -y cuda-toolkit-12-2
+          if [ ! -d /usr/local/cuda-12.2 ]; then
+            sudo apt-get update
+            sudo apt-get install -y wget gnupg software-properties-common
+            sudo apt-key del 7fa2af80 || true
+            sudo wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub -O /usr/share/keyrings/cuda-archive-keyring.gpg
+            echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" | sudo tee /etc/apt/sources.list.d/cuda.list
+            sudo apt-get update
+            sudo apt-get install -y cuda-toolkit-12-2
+          else
+            echo "CUDA SDK already cached, skipping installation"
+          fi
+
+      # ----------------------
+      # Model assets cache
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/k
+            ~/.whisper-models
+          key: model-assets-v1
 
       - name: Download Model Assets
         run: |
@@ -64,6 +87,8 @@ jobs:
             [ -f ~/.whisper-models/${model}.bin ] || curl -L -o ~/.whisper-models/${model}.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${model}.bin
           done
 
+      # ----------------------
+      # Build variants
       - name: Build CPU Variant (OpenBLAS statically linked)
         run: |
           chmod +x ./build_linux.sh
