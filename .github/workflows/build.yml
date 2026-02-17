@@ -153,19 +153,23 @@ jobs:
         run: |
           setlocal EnableDelayedExpansion
 
+          REM Use CPU+CUDA for x64, CPU only for ARM64
           if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
               set VARIANTS=WIN_WITH_OPENBLAS=1,WIN_WITH_CUDA=1
           ) else (
-              REM ARM64 only CPU variant
               set VARIANTS=WIN_WITH_OPENBLAS=1
           )
 
           for %%v in (%VARIANTS%) do (
               if "%%v"=="WIN_WITH_OPENBLAS=1" (set ART_NAME=cpu) else (set ART_NAME=cuda)
+
+              REM Clear folder to avoid collisions
               if exist dist\!ART_NAME! rmdir /s /q dist\!ART_NAME!
               mkdir dist\!ART_NAME!
+
               echo Building variant %%v in MSVC environment
               call build_windows.bat %%v
+
               move dist\* dist\!ART_NAME!
           )
 
