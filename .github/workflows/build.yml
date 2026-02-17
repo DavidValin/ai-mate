@@ -94,10 +94,21 @@ jobs:
       - name: Increase Swap
         if: matrix.arch == 'amd64'
         run: |
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          if swapon --show | grep -q '/swapfile'; then
+            echo "Swap already enabled"
+          else
+            echo "Creating swap..."
+            sudo swapoff -a || true
+            sudo rm -f /swapfile || true
+            sudo fallocate -l 8G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+          fi
+
+          echo "Current swap:"
+          swapon --show
+          free -h
 
       # ----------------------
       # Build CPU variant (OpenBLAS static)
@@ -115,7 +126,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.arch }}-cpu
-          path: ./dist/cpu
+          path: dist/*-linux-${{ matrix.arch }}-cpu
 
       # ----------------------
       # Build CUDA variant (amd64 only)
@@ -130,12 +141,11 @@ jobs:
         env:
           CARGO_BUILD_JOBS: 2
 
-      - name: Upload CUDA Artifact
-        if: matrix.arch == 'amd64'
+      - name: Upload CPU Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-amd64-cuda
-          path: ./dist/cuda
+          name: linux-${{ matrix.arch }}-cpu
+          path: dist/*-linux-${{ matrix.arch }}-cpu
 
 
   # ----------------------
