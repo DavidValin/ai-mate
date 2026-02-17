@@ -57,12 +57,14 @@ jobs:
         if: matrix.arch == 'amd64'
         run: |
           if [ ! -d /usr/local/cuda-12.2 ]; then
-            echo "CUDA not found, installing..."
+            echo "CUDA not cached, installing..."
             sudo apt-get update
             sudo apt-get install -y wget gnupg software-properties-common
-            # Download and install NVIDIA keyring package
-            wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.2-1_all.deb
-            sudo dpkg -i cuda-keyring_1.2-1_all.deb
+
+            # Download & install the CUDA keyring
+            wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb
+            sudo dpkg -i cuda-keyring_1.1-1_all.deb
+
             # Update apt and install CUDA toolkit
             sudo apt-get update
             sudo apt-get install -y cuda-toolkit-12-2
