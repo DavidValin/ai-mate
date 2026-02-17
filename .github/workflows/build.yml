@@ -52,7 +52,8 @@ jobs:
       - name: Build Linux
         run: |
           chmod +x ./build_linux.sh
-          ./build_linux.sh --arch ${{ matrix.arch }} --jobs 2  # limit parallelism to avoid SIGKILL
+          # Remove --jobs because script does not support it
+          ./build_linux.sh --arch ${{ matrix.arch }}
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
@@ -101,7 +102,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path packages
 
       - name: Build Windows
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./build_windows.ps1 -Arch ${{ matrix.arch }}
+        run: |
+          # Ensure the PS script exists and path is correct
+          if (-Not (Test-Path -Path "./build_windows.ps1")) {
+            Write-Error "build_windows.ps1 not found at repo root!"
+            exit 1
+          }
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./build_windows.ps1 -Arch ${{ matrix.arch }}
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
