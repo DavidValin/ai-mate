@@ -17,11 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [amd64, arm64]   # Run each Linux arch in parallel
+        arch: [amd64, arm64]  # Run in parallel
     steps:
       - uses: actions/checkout@v4
 
-      # QEMU for multi-arch
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
@@ -41,7 +40,6 @@ jobs:
           path: target
           key: cargo-target-linux-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
 
-      # Download model assets
       - name: Download Model Assets
         run: |
           mkdir -p ~/.cache/k ~/.whisper-models
@@ -66,26 +64,22 @@ jobs:
 # ----------------------
 # macOS Builds
 # ----------------------
-  macos:
-    name: macOS Build
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [x64, arm64]
-    steps:
-      - uses: actions/checkout@v4
+macos:
+  name: macOS Build
+  runs-on: macos-latest
+  steps:
+    - uses: actions/checkout@v4
 
-      # No sequoia install; macOS builds now use local script
-      - name: Build macOS
-        run: |
-          chmod +x ./build_macos.sh
-          ./build_macos.sh
+    - name: Build macOS (x64 only on CI)
+      run: |
+        chmod +x ./build_macos.sh
+        ./build_macos.sh --arch x64
 
-      - name: Upload macOS Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-${{ matrix.arch }}
-          path: ./dist
+    - name: Upload macOS Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-x64
+        path: ./dist
 
 # ----------------------
 # Windows Builds
@@ -105,8 +99,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path packages
 
       - name: Build Windows
-        working-directory: ${{ github.workspace }}
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File build_windows.ps1 -Arch ${{ matrix.arch }}
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File "${{ github.workspace }}\build_windows.ps1" -Arch ${{ matrix.arch }}
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
