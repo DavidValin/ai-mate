@@ -174,33 +174,38 @@ jobs:
         run: |
           setlocal EnableDelayedExpansion
 
-          REM x64 builds: CPU + CUDA, ARM64 builds: CPU only
+          REM Define variants depending on architecture
           if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
               set VARIANTS=WIN_WITH_OPENBLAS=1,WIN_WITH_CUDA=1
           ) else (
               set VARIANTS=WIN_WITH_OPENBLAS=1
-              echo "Skipping CUDA on ARM64"
+              echo Skipping CUDA on ARM64
           )
 
           for %%v in (%VARIANTS%) do (
-              if "%%v"=="WIN_WITH_OPENBLAS=1" (set ART_NAME=cpu) else (set ART_NAME=cuda)
-
-              REM Skip ARM64 CUDA completely
-              if "%PROCESSOR_ARCHITECTURE%"=="ARM64" if "!ART_NAME!"=="cuda" (
-                  echo Skipping CUDA variant on ARM64
-                  goto :continue
+              REM Determine artifact folder
+              if "%%v"=="WIN_WITH_OPENBLAS=1" (
+                  set ART_NAME=cpu
+              ) else (
+                  set ART_NAME=cuda
               )
 
-              REM Clear folder to avoid collisions
-              if exist dist\!ART_NAME! rmdir /s /q dist\!ART_NAME!
-              mkdir dist\!ART_NAME!
+              REM Skip CUDA entirely on ARM64
+              if "%PROCESSOR_ARCHITECTURE%"=="ARM64" if "!ART_NAME!"=="cuda" (
+                  echo Skipping CUDA variant on ARM64
+              ) else (
+                  REM Clear folder to avoid collisions
+                  if exist dist\!ART_NAME! rmdir /s /q dist\!ART_NAME!
+                  mkdir dist\!ART_NAME!
 
-              echo Building variant %%v in MSVC environment
-              call build_windows.bat %%v
+                  echo Building variant %%v in MSVC environment
+                  call build_windows.bat %%v
 
-              move dist\* dist\!ART_NAME!
-              :continue
+                  REM Move built binaries into folder
+                  move dist\* dist\!ART_NAME!
+              )
           )
+
 
       # ----------------------
       # Upload artifacts
