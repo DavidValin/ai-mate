@@ -15,7 +15,6 @@ jobs:
   windows-x64:
     name: Windows Build (x64)
     runs-on: windows-latest
-    needs: linux-arm64
     steps:
       - uses: actions/checkout@v4
 
