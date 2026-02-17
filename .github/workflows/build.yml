@@ -80,7 +80,7 @@ jobs:
           done
 
       # ----------------------
-      # Increase Swap
+      # Increase Swap on host
       - name: Increase Swap
         run: |
           if swapon --show | grep -q '/swapfile'; then
@@ -104,7 +104,10 @@ jobs:
         run: |
           chmod +x ./build_linux.sh
           echo "Building CPU variant (OpenBLAS static)"
-          WITH_CUDA=0 WITH_ROCM=0 LINUX_WITH_OPENBLAS=1 LINUX_WITH_VULKAN=0 ./build_linux.sh --arch amd64
+
+          # ---- enable swap inside Docker for AMD64 ----
+          WITH_CUDA=0 WITH_ROCM=0 LINUX_WITH_OPENBLAS=1 LINUX_WITH_VULKAN=0 ./build_linux.sh --arch amd64 --enable-container-swap
+
           mkdir -p ./dist/cpu
           mv ./dist/* ./dist/cpu/
         env:
@@ -122,7 +125,10 @@ jobs:
         run: |
           chmod +x ./build_linux.sh
           echo "Building CUDA variant"
-          WITH_CUDA=1 WITH_ROCM=0 LINUX_WITH_OPENBLAS=1 LINUX_WITH_VULKAN=1 ./build_linux.sh --arch amd64
+
+          # ---- enable swap inside Docker for AMD64 ----
+          WITH_CUDA=1 WITH_ROCM=0 LINUX_WITH_OPENBLAS=1 LINUX_WITH_VULKAN=1 ./build_linux.sh --arch amd64 --enable-container-swap
+
           mkdir -p ./dist/cuda
           mv ./dist/* ./dist/cuda/
         env:
@@ -214,6 +220,7 @@ jobs:
         with:
           name: linux-arm64-cpu
           path: dist/*-linux-arm64-cpu
+
 
   # ----------------------
   # Windows x64
