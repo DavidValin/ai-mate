@@ -197,6 +197,16 @@ jobs:
         run: |
           setlocal EnableDelayedExpansion
 
+          REM Set Rust target depending on architecture
+          if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
+              set "RUST_TARGET=x86_64-pc-windows-msvc"
+          ) else if "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
+              set "RUST_TARGET=aarch64-pc-windows-msvc"
+          ) else (
+              echo Unsupported architecture: %PROCESSOR_ARCHITECTURE%
+              exit /b 1
+          )
+
           REM Set variants depending on architecture
           if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
               set VARIANTS=WIN_WITH_OPENBLAS=1 WIN_WITH_CUDA=1
@@ -210,8 +220,10 @@ jobs:
               REM Determine artifact folder
               if "%%v"=="WIN_WITH_OPENBLAS=1" (
                   set ART_NAME=cpu
+                  set "WIN_WITH_OPENBLAS=1"
               ) else (
                   set ART_NAME=cuda
+                  set "WIN_WITH_CUDA=1"
               )
 
               REM Skip CUDA entirely on ARM64
@@ -223,7 +235,7 @@ jobs:
                   mkdir dist\!ART_NAME!
 
                   echo Building variant %%v in MSVC environment
-                  call build_windows.bat %%v
+                  call build_windows.bat
 
                   REM Copy built files from target-cross to dist\<variant>
                   if exist "%TARGET_DIR%\!ART_NAME!\*" (
@@ -234,7 +246,6 @@ jobs:
                   )
               )
           )
-
 
       # ----------------------
       # Upload artifacts
@@ -250,3 +261,4 @@ jobs:
         with:
           name: windows-${{ matrix.arch }}-cuda
           path: dist\cuda
+
