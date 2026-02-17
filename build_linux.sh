@@ -55,6 +55,9 @@ list_has() {
 }
 want_arch() { [[ "${SEL_ARCH}" == "all" ]] && return 0; list_has "${SEL_ARCH}" "$1"; }
 
+# -----------------------------
+# FIX: ignore unknown args (like --enable-container-swap)
+# -----------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch) SEL_ARCH="$(normalize_list "${2-}")"; shift 2 ;;
@@ -62,7 +65,10 @@ while [[ $# -gt 0 ]]; do
     --cache) DOCKER_NO_CACHE=0; shift ;;
     --no-cache) DOCKER_NO_CACHE=1; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "Unknown arg: $1"; usage; exit 1 ;;
+    *) 
+       echo "⚠ Ignoring unknown arg: $1"
+       shift
+       ;;
   esac
 done
 
