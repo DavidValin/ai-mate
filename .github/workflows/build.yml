@@ -1,97 +1,158 @@
-name: CI Build
+name: Build All Platforms
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
-  setup-rust:
+  # ----------------- Linux -----------------
+  build-linux:
+    name: Build Linux Binaries
     runs-on: ubuntu-latest
-    outputs:
-      rust-cache-key: ${{ steps.cache-crates.outputs.cache-hit }}
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      # Rust toolchain setup
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+      - name: Set up QEMU for multiarch
+        uses: docker/setup-qemu-action@v2
 
-      # Cache Rust crates
-      - name: Cache Rust crates
-        id: cache-crates
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: rust-crates-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-  build-linux-amd64:
-    needs: setup-rust
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/cache@v3
-        with:
-          path: ~/.cache/k
-          key: k-cache-${{ runner.os }}-amd64
-      - uses: actions/cache@v3
-        with:
-          path: ~/.whisper-models
-          key: whisper-models-${{ runner.os }}-amd64
-      - name: Build Linux amd64
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y curl tar xz-utils
+
+      - name: Run Linux build
         run: |
           chmod +x ./build_linux.sh
-          ./build_linux.sh --arch amd64
+          ./build_linux.sh --arch ${{ matrix.arch }}
 
-      - name: Upload Linux amd64 artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload Linux CPU variant
+        uses: actions/upload-artifact@v4
         with:
-          name: linux-amd64
-          path: dist/
+          name: linux-${{ matrix.arch }}-cpu
+          path: dist/ai-mate-*-linux-${{ matrix.arch }}-cpu
 
-  build-linux-arm64:
-    needs: setup-rust
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/cache@v3
+      - name: Upload Linux OpenBLAS variant
+        uses: actions/upload-artifact@v4
         with:
-          path: ~/.cargo/registry
-          key: rust-crates-${{ runner.os }}-arm64-${{ hashFiles('**/Cargo.lock') }}
-      - name: Install Rust target for ARM64
-        run: rustup target add aarch64-unknown-linux-gnu
-      - name: Build Linux ARM64
-        run: |
-          mkdir -p target-cross/linux-arm64-cpu/release
-          cargo build --release --target aarch64-unknown-linux-gnu --no-default-features --features whisper-logs
-          cp target/aarch64-unknown-linux-gnu/release/ai-mate dist/ai-mate-0.3.0-linux-arm64
-      - name: Upload Linux ARM64 artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: linux-arm64
-          path: dist/
+          name: linux-${{ matrix.arch }}-openblas
+          path: dist/ai-mate-*-linux-${{ matrix.arch }}-openblas
 
+      - name: Upload Linux Vulkan variant
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}-vulkan
+          path: dist/ai-mate-*-linux-${{ matrix.arch }}-vulkan
+
+      - name: Upload Linux CUDA variant (amd64 only)
+        if: matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-cuda
+          path: dist/ai-mate-*-linux-amd64-cuda
+
+      - name: Upload Linux ROCm variant (amd64 only)
+        if: matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-rocm
+          path: dist/ai-mate-*-linux-amd64-rocm
+
+  # ----------------- Windows -----------------
   build-windows:
-    needs: setup-rust
+    name: Build Windows Binaries
     runs-on: windows-latest
     strategy:
       matrix:
-        target: [x86_64-pc-windows-msvc, aarch64-pc-windows-msvc]
+        arch: [x86_64, arm64]
     steps:
-      - uses: actions/checkout@v3
-      - name: Install Rust target
-        run: rustup target add ${{ matrix.target }}
-      - name: Build Windows target
-        run: |
-          cargo build --release --target ${{ matrix.target }} --no-default-features --features whisper-logs
-          copy target\${{ matrix.target }}\release\ai-mate.exe dist\ai-mate-0.3.0-${{ matrix.target }}.exe
-      - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v3
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
         with:
-          name: windows-${{ matrix.target }}
-          path: dist/
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Run Windows build
+        run: |
+          set CI=1
+          powershell -Command "chmod +x build_windows.ps1; ./build_windows.ps1"
+
+      - name: Upload Windows CPU variant
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-cpu
+          path: dist/ai-mate-*-windows-${{ matrix.arch }}-cpu.exe
+
+      - name: Upload Windows OpenBLAS variant
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-openblas
+          path: dist/ai-mate-*-windows-${{ matrix.arch }}-openblas.exe
+
+      - name: Upload Windows Vulkan variant
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-vulkan
+          path: dist/ai-mate-*-windows-${{ matrix.arch }}-vulkan.exe
+
+      - name: Upload Windows CUDA variant (x86_64 only)
+        if: matrix.arch == 'x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-cuda
+          path: dist/ai-mate-*-windows-x86_64-cuda.exe
+
+      - name: Upload Windows ROCm variant (x86_64 only)
+        if: matrix.arch == 'x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-rocm
+          path: dist/ai-mate-*-windows-x86_64-rocm.exe
+
+  # ----------------- macOS -----------------
+  build-macos:
+    name: Build macOS Binaries
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Run macOS build
+        run: |
+          chmod +x ./build_macos.sh
+          ./build_macos.sh --arch ${{ matrix.arch }}
+
+      - name: Upload macOS CPU variant
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-cpu
+          path: dist/ai-mate-*-macos-${{ matrix.arch }}-cpu
+
+      - name: Upload macOS OpenBLAS variant
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-openblas
+          path: dist/ai-mate-*-macos-${{ matrix.arch }}-openblas
+
+      - name: Upload macOS Vulkan variant
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-vulkan
+          path: dist/ai-mate-*-macos-${{ matrix.arch }}-vulkan
