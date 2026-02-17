@@ -225,14 +225,16 @@ jobs:
                   echo Building variant %%v in MSVC environment
                   call build_windows.bat %%v
 
-                  REM Move only files if any exist
-                  if exist dist\* (
-                      move dist\* dist\!ART_NAME!
+                  REM Copy built files from target-cross to dist\<variant>
+                  if exist "%TARGET_DIR%\!ART_NAME!\*" (
+                      echo Copying built files to dist\!ART_NAME!
+                      xcopy /Y /I /E "%TARGET_DIR%\!ART_NAME!\*" "dist\!ART_NAME!\"
                   ) else (
-                      echo No files produced for variant %%v
+                      echo WARNING: No files produced for variant %%v
                   )
               )
           )
+
 
       # ----------------------
       # Upload artifacts
