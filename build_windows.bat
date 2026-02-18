@@ -140,6 +140,7 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
           -Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG% ^
           -Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG% ^
           -Donnxruntime_BUILD_SHARED_LIB=OFF ^
+          -Donnxruntime_BUILD_TESTS=OFF ^
           -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
           "%ONNX_CMAKE_SRC%"
     if errorlevel 1 exit /b 1
