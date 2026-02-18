@@ -11,9 +11,10 @@ set "VENDOR_DIR=%PROJECT_ROOT%vendor"
 set "ESPEAK_SRC=%VENDOR_DIR%\espeak-ng"
 set "ESPEAK_BUILD=%ESPEAK_SRC%\build-msvc"
 set "ESPEAK_INSTALL=%ESPEAK_BUILD%\install"
-set "OPENBLAS_DIR=%VENDOR_DIR%\openblas"
-set "OPENBLAS_URL=https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30-x64-64.zip"
-set "OPENBLAS_ZIP=%VENDOR_DIR%\openblas.zip"
+set "OPENBLAS_SRC=%VENDOR_DIR%\openblas-src"
+set "OPENBLAS_BUILD=%OPENBLAS_SRC%\build-msvc"
+set "OPENBLAS_INSTALL=%OPENBLAS_BUILD%\install"
+set "OPENBLAS_URL=https://github.com/xianyi/OpenBLAS.git"
 set "ONNX_SRC=%VENDOR_DIR%\onnxruntime"
 set "ONNX_BUILD=%ONNX_SRC%\build-static"
 
@@ -26,6 +27,7 @@ where cargo >nul 2>nul || (echo ERROR: cargo not found & exit /b 1)
 
 REM ===== Force static MSVC runtime for Rust =====
 set "RUSTFLAGS=-Ctarget-feature=+crt-static"
+set "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS=-Ctarget-feature=+crt-static"
 
 REM ===== Determine Variant =====
 set "VARIANT=%~1"
@@ -64,7 +66,7 @@ mkdir "%TARGET_DIR%\%VARIANT%" >nul 2>nul
 mkdir "%DIST_DIR%" >nul 2>nul
 mkdir "%VENDOR_DIR%" >nul 2>nul
 
-REM ===== eSpeak NG Build =====
+REM ===== eSpeak NG Build (Static /MT) =====
 if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
     echo === Building eSpeak NG (MSVC /MT) ===
     if not exist "%ESPEAK_SRC%" (
@@ -72,6 +74,7 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
         if errorlevel 1 exit /b 1
     )
     pushd "%ESPEAK_SRC%"
+    mkdir "%ESPEAK_BUILD%" >nul 2>nul
     cmake -S . ^
           -B "%ESPEAK_BUILD%" ^
           -G "Visual Studio 17 2022" ^
@@ -88,45 +91,48 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
     popd
 )
 
-REM ===== Download OpenBLAS if needed =====
+REM ===== OpenBLAS Build (Static /MT) =====
 if "%WIN_WITH_OPENBLAS%"=="1" (
-    if not exist "%OPENBLAS_DIR%\lib\libopenblas.a" (
-        echo Downloading OpenBLAS...
-        powershell -Command "Invoke-WebRequest -Uri '%OPENBLAS_URL%' -OutFile '%OPENBLAS_ZIP%'"
+    if not exist "%OPENBLAS_INSTALL%\lib\libopenblas.lib" (
+        echo === Building OpenBLAS (MSVC /MT) ===
+        if not exist "%OPENBLAS_SRC%" (
+            git clone --branch v0.3.30 --single-branch https://github.com/xianyi/OpenBLAS.git "%OPENBLAS_SRC%"
+            if errorlevel 1 exit /b 1
+        )
+        mkdir "%OPENBLAS_BUILD%" >nul 2>nul
+        pushd "%OPENBLAS_BUILD%"
+        cmake -G "Visual Studio 17 2022" ^
+              -A x64 ^
+              -DCMAKE_BUILD_TYPE=Release ^
+              -DBUILD_SHARED_LIBS=OFF ^
+              -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
+              -DCMAKE_INSTALL_PREFIX="%OPENBLAS_INSTALL%" ^
+              "%OPENBLAS_SRC%"
         if errorlevel 1 exit /b 1
-        echo Extracting OpenBLAS...
-        powershell -Command "Expand-Archive -LiteralPath '%OPENBLAS_ZIP%' -DestinationPath '%VENDOR_DIR%' -Force"
+        cmake --build . --config Release --target INSTALL
         if errorlevel 1 exit /b 1
-        move /Y "%VENDOR_DIR%\OpenBLAS-0.3.30-x64-64" "%OPENBLAS_DIR%"
-        del "%OPENBLAS_ZIP%"
-        echo OpenBLAS ready.
+        popd
     )
 )
 
-REM ===== ONNX Runtime Fully Static Build =====
+REM ===== ONNX Runtime Fully Static Build (/MT) =====
 if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
     echo === Building ONNX Runtime (Fully Static /MT) ===
-
-    REM Clone ONNX Runtime if missing
     if not exist "%ONNX_SRC%" (
         git clone --recursive https://github.com/microsoft/onnxruntime "%ONNX_SRC%"
         if errorlevel 1 exit /b 1
     )
-
-    REM Initialize submodules safely
     pushd "%ONNX_SRC%"
     git submodule sync
     git submodule update --init --recursive --force
     if errorlevel 1 exit /b 1
     popd
 
-    REM Dynamic CUDA/Vulkan flags
     set "ONNX_CUDA_FLAG=OFF"
     set "ONNX_VULKAN_FLAG=OFF"
     if "%WIN_WITH_CUDA%"=="1" set "ONNX_CUDA_FLAG=ON"
     if "%WIN_WITH_VULKAN%"=="1" set "ONNX_VULKAN_FLAG=ON"
 
-    REM Build ONNX Runtime static
     mkdir "%ONNX_BUILD%" >nul 2>nul
     pushd "%ONNX_BUILD%"
     cmake -G "Visual Studio 17 2022" ^
@@ -146,8 +152,6 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
       -DONNX_DISABLE_CONTRIB_OPS=ON ^
       "%ONNX_SRC%\cmake"
     if errorlevel 1 exit /b 1
-
-    REM Force linker to ignore LNK4217/LNK4286 warnings (safe for fully static)
     cmake --build . --config Release -- /ignore:4217 /ignore:4286
     if errorlevel 1 exit /b 1
     popd
@@ -156,14 +160,14 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
 REM ===== Export environment =====
 set "ESPEAKNG_INCLUDE_DIR=%ESPEAK_INSTALL%\include"
 set "ESPEAKNG_LIB_DIR=%ESPEAK_INSTALL%\lib"
+set "OPENBLAS_LIB_DIR=%OPENBLAS_INSTALL%\lib"
+set "OPENBLAS_INCLUDE_DIR=%OPENBLAS_INSTALL%\include"
 set "ONNXRUNTIME_LIB_DIR=%ONNX_BUILD%\Release"
 set "ONNXRUNTIME_INCLUDE_DIR=%ONNX_SRC%\include"
 
 REM ===== Build Rust target fully static =====
 set "TARGET=x86_64-pc-windows-msvc"
 set "DST_BIN=%TARGET_DIR%\%VARIANT%\%BIN_BASE%-%VARIANT%.exe"
-
-set "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS=-Ctarget-feature=+crt-static"
 
 cargo build --release --target %TARGET%
 if errorlevel 1 exit /b 1
