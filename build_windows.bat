@@ -134,15 +134,18 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
     mkdir "%ONNX_BUILD%" >nul 2>nul
     pushd "%ONNX_BUILD%"
     cmake -G "Visual Studio 17 2022" ^
-          -A x64 ^
-          -DCMAKE_BUILD_TYPE=Release ^
-          -DBUILD_SHARED_LIBS=OFF ^
-          -Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG% ^
-          -Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG% ^
-          -Donnxruntime_BUILD_SHARED_LIB=OFF ^
-          -Donnxruntime_BUILD_TESTS=OFF ^
-          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
-          "%ONNX_CMAKE_SRC%"
+      -A x64 ^
+      -DCMAKE_BUILD_TYPE=Release ^
+      -DBUILD_SHARED_LIBS=OFF ^
+      -Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG% ^
+      -Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG% ^
+      -Donnxruntime_BUILD_SHARED_LIB=OFF ^
+      -Donnxruntime_BUILD_UNIT_TESTS=OFF ^
+      -Donnxruntime_BUILD_TESTS=OFF ^
+      -Donnxruntime_ENABLE_TESTING=OFF ^
+      -DBUILD_TESTING=OFF ^
+      -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
+      "%ONNX_CMAKE_SRC%"
     if errorlevel 1 exit /b 1
     cmake --build . --config Release
     if errorlevel 1 exit /b 1
