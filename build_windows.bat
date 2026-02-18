@@ -142,9 +142,6 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
       -Donnxruntime_BUILD_SHARED_LIB=OFF ^
       -Donnxruntime_BUILD_UNIT_TESTS=OFF ^
       -Donnxruntime_BUILD_TESTS=OFF ^
-      -Donnxruntime_ENABLE_TESTING=OFF ^
-      -DBUILD_TESTING=OFF ^
-      -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
       "%ONNX_CMAKE_SRC%"
     if errorlevel 1 exit /b 1
     cmake --build . --config Release
