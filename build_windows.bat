@@ -127,12 +127,8 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
     if "%WIN_WITH_CUDA%"=="1" set "ONNX_CUDA_FLAG=ON"
     if "%WIN_WITH_VULKAN%"=="1" set "ONNX_VULKAN_FLAG=ON"
 
-    REM Determine correct CMake source path
-    set "ONNX_CMAKE_SRC=%ONNX_SRC%"
-    if not exist "%ONNX_CMAKE_SRC%\CMakeLists.txt" (
-        REM fallback to subfolder (common in recent ONNX Runtime)
-        set "ONNX_CMAKE_SRC=%ONNX_SRC%\onnxruntime"
-    )
+    REM ===== Determine correct CMake source path =====
+    set "ONNX_CMAKE_SRC=%ONNX_SRC%\cmake"
 
     REM Build ONNX Runtime
     mkdir "%ONNX_BUILD%" >nul 2>nul
