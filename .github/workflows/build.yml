@@ -13,8 +13,15 @@ jobs:
     name: Windows Build (x64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      # ----------------------
+      # Checkout repository with submodules
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
+      # ----------------------
+      # Prepare Directories
       - name: Prepare directories
         run: |
           mkdir dist
@@ -42,12 +49,9 @@ jobs:
           mkdir "%USERPROFILE%\.cache\k"
           curl -L https://github.com/DavidValin/kokoro-tiny/raw/main/models/0.bin -o "%USERPROFILE%\.cache\k\0.bin"
           curl -L https://github.com/DavidValin/kokoro-tiny/raw/main/models/0.onnx -o "%USERPROFILE%\.cache\k\0.onnx"
-          mkdir "%USERPROFILE%\.whisper-models"
-          curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin -o "%USERPROFILE%\.whisper-models\ggml-small.bin"
-          curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin -o "%USERPROFILE%\.whisper-models\ggml-tiny.bin"
 
       # ----------------------
-      # Build Windows CPU Variant
+      # Windows CPU Build
       - name: Build Windows CPU
         shell: cmd
         run: |
@@ -55,7 +59,7 @@ jobs:
           call "%CD%\build_windows.bat" cpu
 
       # ----------------------
-      # Build Windows OpenBLAS Variant
+      # Windows OpenBLAS Build
       - name: Build Windows OpenBLAS
         shell: cmd
         run: |
@@ -63,7 +67,7 @@ jobs:
           call "%CD%\build_windows.bat" openblas
 
       # ----------------------
-      # Build Windows Vulkan Variant
+      # Windows Vulkan Build
       - name: Build Windows Vulkan
         shell: cmd
         run: |
@@ -71,7 +75,7 @@ jobs:
           call "%CD%\build_windows.bat" vulkan
 
       # ----------------------
-      # Build Windows CUDA Variant
+      # Windows CUDA Build
       - name: Build Windows CUDA
         shell: cmd
         run: |
