@@ -66,7 +66,7 @@ mkdir "%VENDOR_DIR%" >nul 2>nul
 
 REM ===== eSpeak NG Build =====
 if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
-    echo === Building eSpeak NG (MSVC) ===
+    echo === Building eSpeak NG (MSVC /MT) ===
     if not exist "%ESPEAK_SRC%" (
         git clone https://github.com/espeak-ng/espeak-ng "%ESPEAK_SRC%"
         if errorlevel 1 exit /b 1
@@ -103,13 +103,12 @@ if "%WIN_WITH_OPENBLAS%"=="1" (
     )
 )
 
-REM ===== ONNX Runtime Static Build =====
+REM ===== ONNX Runtime Fully Static Build =====
 if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
-    echo === Building ONNX Runtime (Static, MultiThreaded) ===
+    echo === Building ONNX Runtime (Fully Static /MT) ===
 
     REM Clone ONNX Runtime if missing
     if not exist "%ONNX_SRC%" (
-        echo Cloning ONNX Runtime repository...
         git clone --recursive https://github.com/microsoft/onnxruntime "%ONNX_SRC%"
         if errorlevel 1 exit /b 1
     )
@@ -126,9 +125,6 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
     set "ONNX_VULKAN_FLAG=OFF"
     if "%WIN_WITH_CUDA%"=="1" set "ONNX_CUDA_FLAG=ON"
     if "%WIN_WITH_VULKAN%"=="1" set "ONNX_VULKAN_FLAG=ON"
-
-    REM CMake source path
-    set "ONNX_CMAKE_SRC=%ONNX_SRC%\cmake"
 
     REM Build ONNX Runtime static
     mkdir "%ONNX_BUILD%" >nul 2>nul
@@ -147,11 +143,12 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
       -Donnxruntime_MSVC_STATIC_RUNTIME=ON ^
       -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
       -DONNX_CUSTOM_PROTOC_EXECUTABLE="" ^
-      "%ONNX_CMAKE_SRC%"
+      -DONNX_DISABLE_CONTRIB_OPS=ON ^
+      "%ONNX_SRC%\cmake"
     if errorlevel 1 exit /b 1
 
-    REM Build and ignore _invoke_watson warnings
-    cmake --build . --config Release -- /ignore:4286 /ignore:4217
+    REM Force linker to ignore LNK4217/LNK4286 warnings (safe for fully static)
+    cmake --build . --config Release -- /ignore:4217 /ignore:4286
     if errorlevel 1 exit /b 1
     popd
 )
@@ -162,11 +159,10 @@ set "ESPEAKNG_LIB_DIR=%ESPEAK_INSTALL%\lib"
 set "ONNXRUNTIME_LIB_DIR=%ONNX_BUILD%\Release"
 set "ONNXRUNTIME_INCLUDE_DIR=%ONNX_SRC%\include"
 
-REM ===== Build Rust target =====
+REM ===== Build Rust target fully static =====
 set "TARGET=x86_64-pc-windows-msvc"
 set "DST_BIN=%TARGET_DIR%\%VARIANT%\%BIN_BASE%-%VARIANT%.exe"
 
-REM Ensure Cargo uses static runtime
 set "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS=-Ctarget-feature=+crt-static"
 
 cargo build --release --target %TARGET%
