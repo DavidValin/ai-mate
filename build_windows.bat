@@ -107,16 +107,19 @@ REM ===== ONNX Runtime Static Build =====
 if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
     echo === Building ONNX Runtime (Static, MultiThreaded) ===
 
-    REM Clone or update ONNX Runtime
-    if not exist "%ONNX_SRC%\CMakeLists.txt" (
+    REM Clone ONNX Runtime if missing
+    if not exist "%ONNX_SRC%" (
         echo Cloning ONNX Runtime repository...
         git clone --recursive https://github.com/microsoft/onnxruntime "%ONNX_SRC%"
         if errorlevel 1 exit /b 1
     )
+
+    REM Ensure submodules are initialized
     pushd "%ONNX_SRC%"
     git fetch --all
     git reset --hard origin/master
-    git submodule update --init --recursive
+    git submodule sync
+    git submodule update --init --recursive --force
     if errorlevel 1 exit /b 1
     popd
 
@@ -125,6 +128,13 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
     set "ONNX_VULKAN_FLAG=OFF"
     if "%WIN_WITH_CUDA%"=="1" set "ONNX_CUDA_FLAG=ON"
     if "%WIN_WITH_VULKAN%"=="1" set "ONNX_VULKAN_FLAG=ON"
+
+    REM Determine correct CMake source path
+    set "ONNX_CMAKE_SRC=%ONNX_SRC%"
+    if not exist "%ONNX_CMAKE_SRC%\CMakeLists.txt" (
+        REM fallback to subfolder (common in recent ONNX Runtime)
+        set "ONNX_CMAKE_SRC=%ONNX_SRC%\onnxruntime"
+    )
 
     REM Build ONNX Runtime
     mkdir "%ONNX_BUILD%" >nul 2>nul
@@ -137,7 +147,7 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
           -Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG% ^
           -Donnxruntime_BUILD_SHARED_LIB=OFF ^
           -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
-          "%ONNX_SRC%"
+          "%ONNX_CMAKE_SRC%"
     if errorlevel 1 exit /b 1
     cmake --build . --config Release
     if errorlevel 1 exit /b 1
