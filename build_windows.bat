@@ -28,27 +28,24 @@ where cl.exe >nul 2>nul
 if errorlevel 1 (
     echo WARNING: cl.exe not found on PATH. Make sure VsDevCmd.bat was called.
 )
-
 where cmake >nul 2>nul
 if errorlevel 1 (
     echo ERROR: cmake not found.
     exit /b 1
 )
-
 where git >nul 2>nul
 if errorlevel 1 (
     echo ERROR: git not found.
     exit /b 1
 )
-
 where powershell >nul 2>nul
 if errorlevel 1 (
     echo ERROR: powershell not found.
     exit /b 1
 )
 
-REM ===== Force static MSVC runtime =====
-set "RUSTFLAGS=-C target-feature=+crt-static"
+REM ===== Rust flags =====
+set "RUSTFLAGS=-C codegen-units=1 -C opt-level=2 -C link-arg=-Wl,/OPT:REF /OPT:ICF"
 
 REM ===== Clean previous builds =====
 echo Cleaning previous builds...
@@ -62,15 +59,12 @@ REM ===== eSpeak NG Build =====
 if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
     echo.
     echo === Building eSpeak NG (MSVC) ===
-
     if not exist "%ESPEAK_SRC%" (
         mkdir "%VENDOR_DIR%" >nul 2>nul
         git clone https://github.com/espeak-ng/espeak-ng "%ESPEAK_SRC%"
         if errorlevel 1 exit /b 1
     )
-
     pushd "%ESPEAK_SRC%"
-
     cmake -S . ^
           -B "%ESPEAK_BUILD%" ^
           -G "Visual Studio 17 2022" ^
@@ -80,16 +74,13 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
           -DBUILD_SHARED_LIBS=OFF ^
           -DESPEAKNG_BUILD_TESTS=OFF ^
           -DESPEAKNG_BUILD_EXAMPLES=OFF
-
     if errorlevel 1 exit /b 1
-
     cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL
     if errorlevel 1 exit /b 1
-
     popd
 )
 
-REM ===== Download OpenBLAS if needed =====
+REM ===== OpenBLAS =====
 if "%WIN_WITH_OPENBLAS%"=="" set "WIN_WITH_OPENBLAS=1"
 if "%WIN_WITH_OPENBLAS%"=="1" (
     if not exist "%OPENBLAS_DIR%\lib\libopenblas.a" (
@@ -97,28 +88,60 @@ if "%WIN_WITH_OPENBLAS%"=="1" (
         mkdir "%VENDOR_DIR%" >nul 2>nul
         powershell -Command "Invoke-WebRequest -Uri '%OPENBLAS_URL%' -OutFile '%OPENBLAS_ZIP%'"
         if errorlevel 1 exit /b 1
-
         echo Extracting OpenBLAS...
         powershell -Command "Expand-Archive -LiteralPath '%OPENBLAS_ZIP%' -DestinationPath '%VENDOR_DIR%' -Force"
         if errorlevel 1 exit /b 1
-
         move /Y "%VENDOR_DIR%\OpenBLAS-0.3.30-x64-64" "%OPENBLAS_DIR%"
         del "%OPENBLAS_ZIP%"
         echo OpenBLAS ready.
     )
 )
 
-REM ===== Export environment for espeak-rs-sys =====
+REM ===== Environment for espeak-rs-sys =====
 set "ESPEAKNG_INCLUDE_DIR=%ESPEAK_INSTALL%\include"
 set "ESPEAKNG_LIB_DIR=%ESPEAK_INSTALL%\lib"
-
 echo Using eSpeak includes: %ESPEAKNG_INCLUDE_DIR%
 echo Using eSpeak lib dir : %ESPEAKNG_LIB_DIR%
 
-REM ===== Build order: CPU → OpenBLAS → Vulkan → CUDA =====
+REM ===== Rust target =====
+set "TARGET=x86_64-pc-windows-msvc"
+
+REM ===== Variant toggles =====
 if "%WIN_WITH_VULKAN%"=="" set "WIN_WITH_VULKAN=1"
 if "%WIN_WITH_CUDA%"=="" set "WIN_WITH_CUDA=1"
 
+REM ===== Functions =====
+:build_variant
+set "VARIANT=%~1"
+set "OUT_DIR=%TARGET_DIR%\%VARIANT%"
+echo.
+echo === Building %VARIANT% variant ===
+mkdir "%OUT_DIR%" >nul 2>nul
+
+REM Set OpenBLAS env if variant is openblas
+if /i "%VARIANT%"=="openblas" (
+    set "OPENBLAS_DIR=%OPENBLAS_DIR%"
+    set "BLAS_INCLUDE_DIRS=%OPENBLAS_DIR%\include"
+)
+
+REM Build release with Rust
+cargo build --release --target %TARGET%
+if errorlevel 1 exit /b 1
+
+REM Copy binary to target-cross folder
+set "SRC_BIN=%PROJECT_ROOT%target\%TARGET%\release\%BIN_BASE%.exe"
+set "DST_BIN=%OUT_DIR%\%BIN_BASE%-%VARIANT%.exe"
+
+if not exist "%SRC_BIN%" (
+    echo ERROR: Built binary not found at %SRC_BIN%
+    exit /b 1
+)
+
+copy /Y "%SRC_BIN%" "%DST_BIN%" >nul
+echo Built %DST_BIN%
+exit /b 0
+
+REM ===== Build sequence =====
 call :build_variant cpu
 if errorlevel 1 exit /b 1
 
@@ -139,29 +162,4 @@ if "%WIN_WITH_CUDA%"=="1" (
 
 echo.
 echo ALL VARIANTS BUILT SUCCESSFULLY!
-exit /b 0
-
-REM ===== Functions =====
-:build_variant
-set "VARIANT=%~1"
-set "OUT_DIR=%TARGET_DIR%\%VARIANT%"
-echo.
-echo === Building %VARIANT% variant ===
-mkdir "%OUT_DIR%" >nul 2>nul
-
-REM Build release with Rust
-cargo build --release --target %TARGET%
-if errorlevel 1 exit /b 1
-
-REM Copy and rename binary per variant
-set "SRC_BIN=%PROJECT_ROOT%target\%TARGET%\release\%BIN_BASE%.exe"
-set "DST_BIN=%OUT_DIR%\%BIN_BASE%-%VARIANT%.exe"
-
-if not exist "%SRC_BIN%" (
-    echo ERROR: Built binary not found at %SRC_BIN%
-    exit /b 1
-)
-
-copy /Y "%SRC_BIN%" "%DST_BIN%" >nul
-echo Built %DST_BIN%
 exit /b 0

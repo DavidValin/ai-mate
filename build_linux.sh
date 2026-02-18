@@ -277,14 +277,26 @@ DOCKERFILE
     "$img" \
     bash -lc '
       set -euo pipefail
+
+      ARCH=amd64
       target=x86_64-unknown-linux-gnu
 
       build_variant() {
         local variant="$1"
         local feats="$2"
-        local ctd="/work/target-cross/linux-amd64-${variant}"
-        echo "---- Building linux/amd64 [$variant] features: $feats"
-        CARGO_TARGET_DIR="$ctd" cargo build --release --target "$target" --no-default-features --features "$feats"
+        local ctd="/work/target-cross/linux-${ARCH}-${variant}"
+
+        echo "---- Building linux/${ARCH} [$variant] features: $feats"
+
+        export RUSTFLAGS="-C codegen-units=1 -C opt-level=2 -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--icf=safe"
+        export CARGO_PROFILE_RELEASE_LTO=false
+        export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
+        export CARGO_PROFILE_RELEASE_DEBUG=false
+        export CARGO_PROFILE_RELEASE_STRIP=symbols
+        export CARGO_PROFILE_RELEASE_INCREMENTAL=false
+
+        CARGO_TARGET_DIR="$ctd" \
+        cargo build --release --target "$target" --no-default-features --features "$feats"
       }
 
       build_variant cpu "'"${FEATURES_CPU}"'"
@@ -302,12 +314,8 @@ DOCKERFILE
         build_variant openblas "'"${FEATURES_OPENBLAS}"'"
       fi
 
-      if [ "${LINUX_WITH_VULKAN}" = "1" ]; then
-        if command -v glslc >/dev/null 2>&1; then
-          build_variant vulkan "'"${FEATURES_VULKAN}"'"
-        else
-          echo "WARN: glslc missing; skipping linux/amd64 vulkan variant"
-        fi
+      if [ "${LINUX_WITH_VULKAN}" = "1" ] && command -v glslc >/dev/null 2>&1; then
+        build_variant vulkan "'"${FEATURES_VULKAN}"'"
       fi
 
       if [ "${WITH_CUDA}" = "1" ]; then
@@ -318,6 +326,7 @@ DOCKERFILE
         build_variant rocm "'"${FEATURES_ROCM}"'"
       fi
     '
+
 
   linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "cpu"
   [[ "${LINUX_WITH_OPENBLAS}" == "1" ]] && linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "openblas"
@@ -391,41 +400,50 @@ DOCKERFILE
     -e LINUX_WITH_OPENBLAS="${LINUX_WITH_OPENBLAS}" \
     -e LINUX_WITH_VULKAN="${LINUX_WITH_VULKAN}" \
     "$img" \
-    bash -lc '
-      set -euo pipefail
-      target=aarch64-unknown-linux-gnu
+      bash -lc '
+        set -euo pipefail
 
-      build_variant() {
-        local variant="$1"
-        local feats="$2"
-        local ctd="/work/target-cross/linux-arm64-${variant}"
-        echo "---- Building linux/arm64 [$variant] features: $feats"
-        CARGO_TARGET_DIR="$ctd" cargo build --release --target "$target" --no-default-features --features "$feats"
-      }
+        ARCH=arm64
+        target=aarch64-unknown-linux-gnu
 
-      build_variant cpu "'"${FEATURES_CPU}"'"
+        build_variant() {
+          local variant="$1"
+          local feats="$2"
+          local ctd="/work/target-cross/linux-${ARCH}-${variant}"
 
-      if [ "${LINUX_WITH_OPENBLAS}" = "1" ]; then
-        if [ -d /usr/include/aarch64-linux-gnu/openblas-pthread ]; then
-          export BLAS_INCLUDE_DIRS=/usr/include/aarch64-linux-gnu/openblas-pthread
-        elif [ -d /usr/include/aarch64-linux-gnu/openblas ]; then
-          export BLAS_INCLUDE_DIRS=/usr/include/aarch64-linux-gnu/openblas
-        elif [ -d /usr/include/openblas ]; then
-          export BLAS_INCLUDE_DIRS=/usr/include/openblas
-        else
-          export BLAS_INCLUDE_DIRS=/usr/include
+          echo "---- Building linux/${ARCH} [$variant] features: $feats"
+
+          export RUSTFLAGS="-C codegen-units=1 -C opt-level=2 -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--icf=safe"
+          export CARGO_PROFILE_RELEASE_LTO=false
+          export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
+          export CARGO_PROFILE_RELEASE_DEBUG=false
+          export CARGO_PROFILE_RELEASE_STRIP=symbols
+          export CARGO_PROFILE_RELEASE_INCREMENTAL=false
+
+          CARGO_TARGET_DIR="$ctd" \
+          cargo build --release --target "$target" \
+            --no-default-features --features "$feats"
+        }
+
+        build_variant cpu "'"${FEATURES_CPU}"'"
+
+        if [ "${LINUX_WITH_OPENBLAS}" = "1" ]; then
+          if [ -d /usr/include/aarch64-linux-gnu/openblas-pthread ]; then
+            export BLAS_INCLUDE_DIRS=/usr/include/aarch64-linux-gnu/openblas-pthread
+          elif [ -d /usr/include/aarch64-linux-gnu/openblas ]; then
+            export BLAS_INCLUDE_DIRS=/usr/include/aarch64-linux-gnu/openblas
+          elif [ -d /usr/include/openblas ]; then
+            export BLAS_INCLUDE_DIRS=/usr/include/openblas
+          else
+            export BLAS_INCLUDE_DIRS=/usr/include
+          fi
+          build_variant openblas "'"${FEATURES_OPENBLAS}"'"
         fi
-        build_variant openblas "'"${FEATURES_OPENBLAS}"'"
-      fi
 
-      if [ "${LINUX_WITH_VULKAN}" = "1" ]; then
-        if command -v glslc >/dev/null 2>&1; then
+        if [ "${LINUX_WITH_VULKAN}" = "1" ] && command -v glslc >/dev/null 2>&1; then
           build_variant vulkan "'"${FEATURES_VULKAN}"'"
-        else
-          echo "WARN: glslc missing; skipping linux/arm64 vulkan variant"
         fi
-      fi
-    '
+      '
 
   linux_copy_out "arm64" "aarch64-unknown-linux-gnu" "cpu"
   [[ "${LINUX_WITH_OPENBLAS}" == "1" ]] && linux_copy_out "arm64" "aarch64-unknown-linux-gnu" "openblas"
