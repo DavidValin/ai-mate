@@ -44,9 +44,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM ===== Rust flags =====
-set "RUSTFLAGS=-C codegen-units=1 -C opt-level=2 -C link-arg=-Wl,/OPT:REF /OPT:ICF"
-
 REM ===== Clean previous builds =====
 echo Cleaning previous builds...
 rd /s /q "%TARGET_DIR%" 2>nul
