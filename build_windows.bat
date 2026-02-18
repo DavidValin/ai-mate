@@ -169,6 +169,10 @@ REM ===== Build Rust target fully static =====
 set "TARGET=x86_64-pc-windows-msvc"
 set "DST_BIN=%TARGET_DIR%\%VARIANT%\%BIN_BASE%-%VARIANT%.exe"
 
+REM ===== Ensure linker does NOT treat warnings as errors =====
+set "RUSTFLAGS=-Ctarget-feature=+crt-static -C link-arg=/WX- -C link-arg=/ignore:4217 -C link-arg=/ignore:4286"
+set "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS=%RUSTFLAGS%"
+
 cargo build --release --target %TARGET%
 if errorlevel 1 exit /b 1
 
