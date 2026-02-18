@@ -1,41 +1,56 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableDelayedExpansion
 
-REM ===== Config =====
+REM ==========================================================
+REM  CONFIG
+REM ==========================================================
+
 set "BIN_BASE=ai-mate"
 set "PROJECT_ROOT=%~dp0"
 set "DIST_DIR=%PROJECT_ROOT%dist"
 set "TARGET_DIR=%PROJECT_ROOT%target-cross"
-set "ASSETS_DIR=%PROJECT_ROOT%assets"
 set "VENDOR_DIR=%PROJECT_ROOT%vendor"
+
 set "ESPEAK_SRC=%VENDOR_DIR%\espeak-ng"
 set "ESPEAK_BUILD=%ESPEAK_SRC%\build-msvc"
 set "ESPEAK_INSTALL=%ESPEAK_BUILD%\install"
+
 set "OPENBLAS_SRC=%VENDOR_DIR%\openblas-src"
 set "OPENBLAS_BUILD=%OPENBLAS_SRC%\build-msvc"
 set "OPENBLAS_INSTALL=%OPENBLAS_BUILD%\install"
+
 set "ONNX_SRC=%VENDOR_DIR%\onnxruntime"
 set "ONNX_BUILD=%ONNX_SRC%\build-static"
 
-REM ===== Clean old builds =====
-rmdir /s /q "%ESPEAK_BUILD%"
-rmdir /s /q "%OPENBLAS_BUILD%"
-rmdir /s /q "%ONNX_BUILD%"
-rmdir /s /q "%PROJECT_ROOT%target"
-rmdir /s /q "%PROJECT_ROOT%target-cross"
+REM ==========================================================
+REM  CLEAN OLD BUILDS
+REM ==========================================================
 
-REM ===== Check required tools =====
-where cl.exe >nul 2>nul || (echo ERROR: Open "x64 Native Tools Command Prompt for VS" first & exit /b 1)
+rmdir /s /q "%ESPEAK_BUILD%" 2>nul
+rmdir /s /q "%OPENBLAS_BUILD%" 2>nul
+rmdir /s /q "%ONNX_BUILD%" 2>nul
+rmdir /s /q "%PROJECT_ROOT%target" 2>nul
+rmdir /s /q "%TARGET_DIR%" 2>nul
+
+REM ==========================================================
+REM  CHECK REQUIRED TOOLS
+REM ==========================================================
+
+where cl.exe >nul 2>nul || (echo ERROR: Open "x64 Native Tools Command Prompt for VS" & exit /b 1)
 where cmake >nul 2>nul || (echo ERROR: cmake not found & exit /b 1)
 where git >nul 2>nul || (echo ERROR: git not found & exit /b 1)
-where powershell >nul 2>nul || (echo ERROR: powershell not found & exit /b 1)
 where cargo >nul 2>nul || (echo ERROR: cargo not found & exit /b 1)
 
-REM ===== Force static MSVC runtime for Rust =====
-set "RUSTFLAGS=-Ctarget-feature=+crt-static -C link-arg=/MT -C link-arg=/WX -C link-arg=/ignore:4217 -C link-arg=/ignore:4286 -C link-arg=libcmt.lib -C link-arg=legacy_stdio_definitions.lib -C link-arg=oldnames.lib"
-set "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS=%RUSTFLAGS%"
+REM ==========================================================
+REM  RUST STATIC CRT
+REM ==========================================================
 
-REM ===== Determine Variant =====
+set "RUSTFLAGS=-C target-feature=+crt-static"
+
+REM ==========================================================
+REM  DETERMINE VARIANT
+REM ==========================================================
+
 set "VARIANT=%~1"
 if "%VARIANT%"=="" set "VARIANT=cpu"
 
@@ -61,57 +76,28 @@ if "%VARIANT%"=="cpu" (
 )
 
 echo.
-echo === Building variant: %VARIANT% ===
-echo WIN_WITH_OPENBLAS=%WIN_WITH_OPENBLAS%
-echo WIN_WITH_CUDA=%WIN_WITH_CUDA%
-echo WIN_WITH_VULKAN=%WIN_WITH_VULKAN%
+echo ============================================
+echo Building variant: %VARIANT%
+echo ============================================
 echo.
 
-REM ===== Prepare directories =====
 mkdir "%TARGET_DIR%\%VARIANT%" >nul 2>nul
 mkdir "%DIST_DIR%" >nul 2>nul
 mkdir "%VENDOR_DIR%" >nul 2>nul
 
-REM ===== Patch ONNX Runtime for static /MT =====
-if exist "%ONNX_SRC%" (
-    echo === Patching ONNX Runtime for static /MT CRT ===
-    for /R "%ONNX_SRC%" %%f in (*.cmake *.txt) do (
-        powershell -Command "(Get-Content '%%f') -replace '/MD','/MT' | Set-Content '%%f'"
-        powershell -Command "(Get-Content '%%f') -replace '/MDd','/MTd' | Set-Content '%%f'"
-    )
-)
+REM ==========================================================
+REM  BUILD ESPEAK NG (STATIC)
+REM ==========================================================
 
-REM ===== Patch eSpeak NG for /MT and MSVC compatibility =====
-if exist "%ESPEAK_SRC%" (
-    echo === Patching eSpeak NG for static /MT CRT and MSVC ===
-    REM Remove GCC pragmas to prevent MSVC warnings
-    for /R "%ESPEAK_SRC%" %%f in (*.c *.h) do (
-        powershell -Command "(Get-Content '%%f') -replace '#pragma GCC.*','' | Set-Content '%%f'"
-    )
-    REM Patch POSIX functions for MSVC
-    for /R "%ESPEAK_SRC%\src\include\compat" %%f in (*.h) do (
-        powershell -Command "(Get-Content '%%f') -replace 'strdup','_strdup' | Set-Content '%%f'"
-        powershell -Command "(Get-Content '%%f') -replace 'stricmp','_stricmp' | Set-Content '%%f'"
-    )
-    REM Define _CRT_SECURE_NO_WARNINGS globally
-    set "CMAKE_C_FLAGS=-D_CRT_SECURE_NO_WARNINGS"
-    set "CMAKE_CXX_FLAGS=-D_CRT_SECURE_NO_WARNINGS"
-)
-
-REM ===== eSpeak NG Build (Static /MT, skip building espeak-ng.exe) =====
 if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
-    echo === Building eSpeak NG library only (MSVC /MT) ===
+
+    echo === Building eSpeak NG (Static /MT) ===
+
     if not exist "%ESPEAK_SRC%" (
-        git clone https://github.com/espeak-ng/espeak-ng "%ESPEAK_SRC%"
-        if errorlevel 1 exit /b 1
+        git clone https://github.com/espeak-ng/espeak-ng "%ESPEAK_SRC%" || exit /b 1
     )
-    pushd "%ESPEAK_SRC%"
-    mkdir "%ESPEAK_BUILD%" >nul 2>nul
 
-    REM Additional linker flags for MSVC static CRT
-    set "ESPEAK_LINK_FLAGS=/NODEFAULTLIB:libucrt.lib /NODEFAULTLIB:msvcrt.lib legacy_stdio_definitions.lib oldnames.lib"
-
-    cmake -S . ^
+    cmake -S "%ESPEAK_SRC%" ^
           -B "%ESPEAK_BUILD%" ^
           -G "Visual Studio 17 2022" ^
           -A x64 ^
@@ -122,111 +108,116 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
           -DESPEAKNG_BUILD_EXAMPLES=OFF ^
           -DESPEAKNG_BUILD_PROGRAM=OFF ^
           -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
-          -DCMAKE_C_FLAGS="%CMAKE_C_FLAGS%" ^
-          -DCMAKE_CXX_FLAGS="%CMAKE_CXX_FLAGS%" ^
-          -DCMAKE_EXE_LINKER_FLAGS="%ESPEAK_LINK_FLAGS%"
-    if errorlevel 1 exit /b 1
-    cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL
-    if errorlevel 1 exit /b 1
-    popd
+          || exit /b 1
+
+    cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL || exit /b 1
 )
 
-REM ===== OpenBLAS Build (Static /MT) =====
+REM ==========================================================
+REM  BUILD OPENBLAS (OPTIONAL STATIC)
+REM ==========================================================
+
 if "%WIN_WITH_OPENBLAS%"=="1" (
+
     if not exist "%OPENBLAS_INSTALL%\lib\libopenblas.lib" (
-        echo === Building OpenBLAS (MSVC /MT) ===
+
+        echo === Building OpenBLAS (Static /MT) ===
+
         if not exist "%OPENBLAS_SRC%" (
-            git clone --branch v0.3.30 --single-branch https://github.com/xianyi/OpenBLAS.git "%OPENBLAS_SRC%"
-            if errorlevel 1 exit /b 1
+            git clone --branch v0.3.30 --single-branch ^
+            https://github.com/xianyi/OpenBLAS.git "%OPENBLAS_SRC%" || exit /b 1
         )
-        mkdir "%OPENBLAS_BUILD%" >nul 2>nul
-        pushd "%OPENBLAS_BUILD%"
-        cmake -G "Visual Studio 17 2022" ^
+
+        cmake -S "%OPENBLAS_SRC%" ^
+              -B "%OPENBLAS_BUILD%" ^
+              -G "Visual Studio 17 2022" ^
               -A x64 ^
               -DCMAKE_BUILD_TYPE=Release ^
               -DBUILD_SHARED_LIBS=OFF ^
               -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
               -DCMAKE_INSTALL_PREFIX="%OPENBLAS_INSTALL%" ^
-              -DCMAKE_EXE_LINKER_FLAGS="/NODEFAULTLIB:MSVCRT libcmt.lib legacy_stdio_definitions.lib oldnames.lib" ^
-              "%OPENBLAS_SRC%"
-        if errorlevel 1 exit /b 1
-        cmake --build . --config Release --target INSTALL
-        if errorlevel 1 exit /b 1
-        popd
+              || exit /b 1
+
+        cmake --build "%OPENBLAS_BUILD%" --config Release --target INSTALL || exit /b 1
     )
 )
 
-REM ===== ONNX Runtime Fully Static Build (/MT) =====
-if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
-    echo === Building ONNX Runtime (Fully Static /MT) ===
-    if not exist "%ONNX_SRC%" (
-        git clone --recursive https://github.com/microsoft/onnxruntime "%ONNX_SRC%"
-        if errorlevel 1 exit /b 1
-    )
-    pushd "%ONNX_SRC%"
-    git submodule sync
-    git submodule update --init --recursive --force
-    if errorlevel 1 exit /b 1
-    popd
+REM ==========================================================
+REM  BUILD ONNX RUNTIME (STATIC)
+REM ==========================================================
 
-    REM Make sure all MSVC runtime references are /MT
-    for /R "%ONNX_SRC%" %%f in (*.cmake *.txt) do (
-        powershell -Command "(Get-Content '%%f') -replace '/MD','/MT' | Set-Content '%%f'"
-        powershell -Command "(Get-Content '%%f') -replace '/MDd','/MTd' | Set-Content '%%f'"
+if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
+
+    echo === Building ONNX Runtime (Static /MT) ===
+
+    if not exist "%ONNX_SRC%" (
+        git clone --recursive https://github.com/microsoft/onnxruntime "%ONNX_SRC%" || exit /b 1
     )
+
+    pushd "%ONNX_SRC%"
+    git submodule update --init --recursive --force || exit /b 1
+    popd
 
     set "ONNX_CUDA_FLAG=OFF"
     set "ONNX_VULKAN_FLAG=OFF"
+
     if "%WIN_WITH_CUDA%"=="1" set "ONNX_CUDA_FLAG=ON"
     if "%WIN_WITH_VULKAN%"=="1" set "ONNX_VULKAN_FLAG=ON"
 
-    mkdir "%ONNX_BUILD%" >nul 2>nul
-    pushd "%ONNX_BUILD%"
-    cmake -G "Visual Studio 17 2022" ^
-      -A x64 ^
-      -DCMAKE_BUILD_TYPE=Release ^
-      -DBUILD_SHARED_LIBS=OFF ^
-      -Donnxruntime_BUILD_SHARED_LIB=OFF ^
-      -Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG% ^
-      -Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG% ^
-      -Donnxruntime_BUILD_UNIT_TESTS=OFF ^
-      -Donnxruntime_BUILD_TESTS=OFF ^
-      -Donnxruntime_ENABLE_TESTING=OFF ^
-      -DBUILD_TESTING=OFF ^
-      -Donnxruntime_MSVC_STATIC_RUNTIME=ON ^
-      -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
-      -DCMAKE_EXE_LINKER_FLAGS="/NODEFAULTLIB:MSVCRT libcmt.lib legacy_stdio_definitions.lib oldnames.lib" ^
-      -DONNX_CUSTOM_PROTOC_EXECUTABLE="" ^
-      -DONNX_DISABLE_CONTRIB_OPS=ON ^
-      "%ONNX_SRC%\cmake"
-    if errorlevel 1 exit /b 1
-    cmake --build . --config Release -- /ignore:4217 /ignore:4286
-    if errorlevel 1 exit /b 1
-    popd
+    cmake -S "%ONNX_SRC%\cmake" ^
+          -B "%ONNX_BUILD%" ^
+          -G "Visual Studio 17 2022" ^
+          -A x64 ^
+          -DCMAKE_BUILD_TYPE=Release ^
+          -DBUILD_SHARED_LIBS=OFF ^
+          -Donnxruntime_BUILD_SHARED_LIB=OFF ^
+          -Donnxruntime_MSVC_STATIC_RUNTIME=ON ^
+          -Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG% ^
+          -Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG% ^
+          -Donnxruntime_BUILD_UNIT_TESTS=OFF ^
+          -Donnxruntime_BUILD_TESTS=OFF ^
+          -Donnxruntime_ENABLE_TESTING=OFF ^
+          -DBUILD_TESTING=OFF ^
+          || exit /b 1
+
+    cmake --build "%ONNX_BUILD%" --config Release || exit /b 1
 )
 
-REM ===== Export environment =====
+REM ==========================================================
+REM  EXPORT ENVIRONMENT
+REM ==========================================================
+
 set "ESPEAKNG_INCLUDE_DIR=%ESPEAK_INSTALL%\include"
 set "ESPEAKNG_LIB_DIR=%ESPEAK_INSTALL%\lib"
-set "OPENBLAS_LIB_DIR=%OPENBLAS_INSTALL%\lib"
-set "OPENBLAS_INCLUDE_DIR=%OPENBLAS_INSTALL%\include"
-set "ONNXRUNTIME_LIB_DIR=%ONNX_BUILD%\Release"
-set "ONNXRUNTIME_INCLUDE_DIR=%ONNX_SRC%\include"
 
-REM ===== Build Rust target fully static =====
+set "OPENBLAS_INCLUDE_DIR=%OPENBLAS_INSTALL%\include"
+set "OPENBLAS_LIB_DIR=%OPENBLAS_INSTALL%\lib"
+
+set "ONNXRUNTIME_INCLUDE_DIR=%ONNX_SRC%\include"
+set "ONNXRUNTIME_LIB_DIR=%ONNX_BUILD%\Release"
+
+REM ==========================================================
+REM  BUILD RUST (STATIC)
+REM ==========================================================
+
 set "TARGET=x86_64-pc-windows-msvc"
+
+cargo build --release --target %TARGET% || exit /b 1
+
+set "SRC_BIN=%PROJECT_ROOT%target\%TARGET%\release\%BIN_BASE%.exe"
 set "DST_BIN=%TARGET_DIR%\%VARIANT%\%BIN_BASE%-%VARIANT%.exe"
 
-cargo build --release --target %TARGET%
-if errorlevel 1 exit /b 1
-
-REM ===== Copy binary =====
-set "SRC_BIN=%PROJECT_ROOT%target\%TARGET%\release\%BIN_BASE%.exe"
 if not exist "%SRC_BIN%" (
-    echo ERROR: Built binary not found at %SRC_BIN%
+    echo ERROR: Built binary not found.
     exit /b 1
 )
 
 copy /Y "%SRC_BIN%" "%DST_BIN%" >nul
-echo Built %DST_BIN%
+
+echo.
+echo ============================================
+echo SUCCESS: %DST_BIN%
+echo ============================================
+echo.
+
 exit /b 0
