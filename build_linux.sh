@@ -413,7 +413,7 @@ DOCKERFILE
 
           echo "---- Building linux/${ARCH} [$variant] features: $feats"
 
-          export RUSTFLAGS="-C codegen-units=1 -C opt-level=2 -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--icf=safe"
+          export RUSTFLAGS="-C codegen-units=1 -C opt-level=2 -C link-arg=-Wl,--gc-sections"
           export CARGO_PROFILE_RELEASE_LTO=false
           export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
           export CARGO_PROFILE_RELEASE_DEBUG=false
