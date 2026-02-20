@@ -138,7 +138,10 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
           -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL ^
           -DCMAKE_C_FLAGS="/MD" ^
           -DCMAKE_CXX_FLAGS="/MD"
+
+    endlocal
     cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL || exit /b 1
+    setlocal EnableDelayedExpansion
 )
 
 REM ==========================================================
