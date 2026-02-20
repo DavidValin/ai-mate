@@ -13,10 +13,10 @@ DOCKER_NO_CACHE=1
 SEL_ARCH="all"   # amd64,arm64,all
 
 # Linux variant toggles
-WITH_CUDA="${WITH_CUDA:-1}"          # amd64 only
+WITH_CUDA="${WITH_CUDA:-0}"          # amd64 only
 WITH_ROCM="${WITH_ROCM:-0}"          # amd64 only
-LINUX_WITH_OPENBLAS="${LINUX_WITH_OPENBLAS:-1}"
-LINUX_WITH_VULKAN="${LINUX_WITH_VULKAN:-1}"
+WITH_OPENBLAS="${WITH_OPENBLAS:-1}"
+WITH_VULKAN="${WITH_VULKAN:-0}"
 
 # Host cache mounts (Linux Docker)
 HOST_HOME="${HOME}"
@@ -33,10 +33,10 @@ Usage:
 --arch comma-separated: amd64,arm64,all
 
 Env:
-  WITH_CUDA=0|1           (amd64) default 1
+  WITH_CUDA=0|1           (amd64) default 0
   WITH_ROCM=0|1           (amd64) default 0
-  LINUX_WITH_OPENBLAS=0|1 default 1
-  LINUX_WITH_VULKAN=0|1   default 1
+  WITH_OPENBLAS=0|1 default 1
+  WITH_VULKAN=0|1   default 0
 USAGE
 }
 
@@ -55,9 +55,7 @@ list_has() {
 }
 want_arch() { [[ "${SEL_ARCH}" == "all" ]] && return 0; list_has "${SEL_ARCH}" "$1"; }
 
-# -----------------------------
-# FIX: ignore unknown args (like --enable-container-swap)
-# -----------------------------
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch) SEL_ARCH="$(normalize_list "${2-}")"; shift 2 ;;
@@ -85,7 +83,7 @@ mkdir -p "${HOST_K_CACHE}" "${HOST_WHISPER_MODELS}"
 echo "Version: ${VERSION}"
 echo "Linux: arch=${SEL_ARCH}"
 echo "Linux amd64: WITH_CUDA=${WITH_CUDA} WITH_ROCM=${WITH_ROCM}"
-echo "Linux variants: OPENBLAS=${LINUX_WITH_OPENBLAS} VULKAN=${LINUX_WITH_VULKAN}"
+echo "Linux variants: OPENBLAS=${WITH_OPENBLAS} VULKAN=${WITH_VULKAN}"
 echo "Cache mounts:"
 echo "  ${HOST_K_CACHE} -> ${CONT_K_CACHE}"
 echo "  ${HOST_WHISPER_MODELS} -> ${CONT_WHISPER_MODELS}"
@@ -270,8 +268,8 @@ DOCKERFILE
     -v "${PROJECT_ROOT}:/work" -w /work \
     -v "${HOST_K_CACHE}:${CONT_K_CACHE}" \
     -v "${HOST_WHISPER_MODELS}:${CONT_WHISPER_MODELS}" \
-    -e LINUX_WITH_OPENBLAS="${LINUX_WITH_OPENBLAS}" \
-    -e LINUX_WITH_VULKAN="${LINUX_WITH_VULKAN}" \
+    -e WITH_OPENBLAS="${WITH_OPENBLAS}" \
+    -e WITH_VULKAN="${WITH_VULKAN}" \
     -e WITH_CUDA="${WITH_CUDA}" \
     -e WITH_ROCM="${WITH_ROCM}" \
     "$img" \
@@ -301,7 +299,7 @@ DOCKERFILE
 
       build_variant cpu "'"${FEATURES_CPU}"'"
 
-      if [ "${LINUX_WITH_OPENBLAS}" = "1" ]; then
+      if [ "${WITH_OPENBLAS}" = "1" ]; then
         if [ -d /usr/include/x86_64-linux-gnu/openblas-pthread ]; then
           export BLAS_INCLUDE_DIRS=/usr/include/x86_64-linux-gnu/openblas-pthread
         elif [ -d /usr/include/x86_64-linux-gnu/openblas ]; then
@@ -314,23 +312,23 @@ DOCKERFILE
         build_variant openblas "'"${FEATURES_OPENBLAS}"'"
       fi
 
-      if [ "${LINUX_WITH_VULKAN}" = "1" ] && command -v glslc >/dev/null 2>&1; then
-        build_variant vulkan "'"${FEATURES_VULKAN}"'"
+      if [ "${WITH_VULKAN}" = "1" ] && command -v glslc >/dev/null 2>&1; then
+        build_variant vulkan "'"${FEATURES_OPENBLAS},${FEATURES_VULKAN}"'"
       fi
 
       if [ "${WITH_CUDA}" = "1" ]; then
-        build_variant cuda "'"${FEATURES_CUDA}"'"
+        build_variant cuda "'"${FEATURES_OPENBLAS},${FEATURES_CUDA}"'"
       fi
 
       if [ "${WITH_ROCM}" = "1" ]; then
-        build_variant rocm "'"${FEATURES_ROCM}"'"
+        build_variant rocm "'"${FEATURES_OPENBLAS},${FEATURES_ROCM}"'"
       fi
     '
 
 
   linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "cpu"
-  [[ "${LINUX_WITH_OPENBLAS}" == "1" ]] && linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "openblas"
-  if [[ "${LINUX_WITH_VULKAN}" == "1" ]] && [[ -f "${PROJECT_ROOT}/target-cross/linux-amd64-vulkan/x86_64-unknown-linux-gnu/release/${BIN_NAME}" ]]; then
+  [[ "${WITH_OPENBLAS}" == "1" ]] && linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "openblas"
+  if [[ "${WITH_VULKAN}" == "1" ]] && [[ -f "${PROJECT_ROOT}/target-cross/linux-amd64-vulkan/x86_64-unknown-linux-gnu/release/${BIN_NAME}" ]]; then
     linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "vulkan"
   fi
   [[ "${WITH_CUDA}" == "1" ]] && linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "cuda"
@@ -397,8 +395,8 @@ DOCKERFILE
     -v "${PROJECT_ROOT}:/work" -w /work \
     -v "${HOST_K_CACHE}:${CONT_K_CACHE}" \
     -v "${HOST_WHISPER_MODELS}:${CONT_WHISPER_MODELS}" \
-    -e LINUX_WITH_OPENBLAS="${LINUX_WITH_OPENBLAS}" \
-    -e LINUX_WITH_VULKAN="${LINUX_WITH_VULKAN}" \
+    -e WITH_OPENBLAS="${WITH_OPENBLAS}" \
+    -e WITH_VULKAN="${WITH_VULKAN}" \
     "$img" \
       bash -lc '
         set -euo pipefail
@@ -413,7 +411,7 @@ DOCKERFILE
 
           echo "---- Building linux/${ARCH} [$variant] features: $feats"
 
-          export RUSTFLAGS="-C codegen-units=1 -C opt-level=2 -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--icf=safe"
+          export RUSTFLAGS="-C codegen-units=1 -C opt-level=3 -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--icf=safe"
           export CARGO_PROFILE_RELEASE_LTO=false
           export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
           export CARGO_PROFILE_RELEASE_DEBUG=false
@@ -427,7 +425,7 @@ DOCKERFILE
 
         build_variant cpu "'"${FEATURES_CPU}"'"
 
-        if [ "${LINUX_WITH_OPENBLAS}" = "1" ]; then
+        if [ "${WITH_OPENBLAS}" = "1" ]; then
           if [ -d /usr/include/aarch64-linux-gnu/openblas-pthread ]; then
             export BLAS_INCLUDE_DIRS=/usr/include/aarch64-linux-gnu/openblas-pthread
           elif [ -d /usr/include/aarch64-linux-gnu/openblas ]; then
@@ -440,14 +438,14 @@ DOCKERFILE
           build_variant openblas "'"${FEATURES_OPENBLAS}"'"
         fi
 
-        if [ "${LINUX_WITH_VULKAN}" = "1" ] && command -v glslc >/dev/null 2>&1; then
+        if [ "${WITH_VULKAN}" = "1" ] && command -v glslc >/dev/null 2>&1; then
           build_variant vulkan "'"${FEATURES_VULKAN}"'"
         fi
       '
 
   linux_copy_out "arm64" "aarch64-unknown-linux-gnu" "cpu"
-  [[ "${LINUX_WITH_OPENBLAS}" == "1" ]] && linux_copy_out "arm64" "aarch64-unknown-linux-gnu" "openblas"
-  if [[ "${LINUX_WITH_VULKAN}" == "1" ]] && [[ -f "${PROJECT_ROOT}/target-cross/linux-arm64-vulkan/aarch64-unknown-linux-gnu/release/${BIN_NAME}" ]]; then
+  [[ "${WITH_OPENBLAS}" == "1" ]] && linux_copy_out "arm64" "aarch64-unknown-linux-gnu" "openblas"
+  if [[ "${WITH_VULKAN}" == "1" ]] && [[ -f "${PROJECT_ROOT}/target-cross/linux-arm64-vulkan/aarch64-unknown-linux-gnu/release/${BIN_NAME}" ]]; then
     linux_copy_out "arm64" "aarch64-unknown-linux-gnu" "vulkan"
   fi
 
