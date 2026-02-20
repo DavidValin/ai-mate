@@ -51,20 +51,16 @@ REM ==========================================================
 set "VARIANT=%~1"
 if "%VARIANT%"=="" set "VARIANT=cpu"
 
+REM Default OpenBLAS off
+set WITH_OPENBLAS=0
+
 if "%VARIANT%"=="cpu" (
-    set WITH_OPENBLAS=0
-    set WITH_CUDA=0
-    set WITH_VULKAN=0
-) else if "%VARIANT%"=="openblas" (
-    set WITH_OPENBLAS=1
     set WITH_CUDA=0
     set WITH_VULKAN=0
 ) else if "%VARIANT%"=="vulkan" (
-    set WITH_OPENBLAS=0
     set WITH_CUDA=0
     set WITH_VULKAN=1
 ) else if "%VARIANT%"=="cuda" (
-    set WITH_OPENBLAS=0
     set WITH_CUDA=1
     set WITH_VULKAN=0
 ) else (
@@ -72,9 +68,15 @@ if "%VARIANT%"=="cpu" (
     exit /b 1
 )
 
+REM Optionally enable OpenBLAS for any variant
+if "%~2"=="openblas" set WITH_OPENBLAS=1
+
 echo.
 echo ============================================
 echo Building variant: %VARIANT%
+if "%WITH_OPENBLAS%"=="1" echo OpenBLAS: ENABLED
+if "%WITH_CUDA%"=="1" echo CUDA: ENABLED
+if "%WITH_VULKAN%"=="1" echo Vulkan: ENABLED
 echo ============================================
 echo.
 
@@ -143,7 +145,7 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
 )
 
 REM ==========================================================
-REM BUILD OPENBLAS STATIC AND LINK (unchanged)
+REM BUILD OPENBLAS STATIC AND LINK (OPTIONAL)
 REM ==========================================================
 if "%WITH_OPENBLAS%"=="1" (
     if not exist "%OPENBLAS_DIR%\lib\libopenblas.lib" (
@@ -162,7 +164,8 @@ if "%WITH_OPENBLAS%"=="1" (
     )
     set "OPENBLAS_LIB_DIR=%OPENBLAS_DIR%\install\lib"
     set "OPENBLAS_INCLUDE_DIR=%OPENBLAS_DIR%\install\include"
-    set "RUSTFLAGS=%RUSTFLAGS% -C link-args=\"/LIBPATH:%OPENBLAS_LIB_DIR% libopenblas.lib\" -C include=%OPENBLAS_INCLUDE_DIR%"
+    REM Remove any invalid -C include
+    set "RUSTFLAGS=-C opt-level=3"
 )
 
 REM ==========================================================
@@ -212,9 +215,9 @@ REM BUILD RUST BINARY WITH FEATURES
 REM ==========================================================
 set "TARGET=x86_64-pc-windows-msvc"
 
-REM optionally add Vulkan or CUDA
+REM Compose Cargo features
 set "CARGO_FEATURES="
-if "%WITH_OPENBLAS%"=="1" set "CARGO_FEATURES=whisper-openblas"
+if "%WITH_OPENBLAS%"=="1" set "CARGO_FEATURES=%CARGO_FEATURES% whisper-openblas"
 if "%WITH_VULKAN%"=="1" set "CARGO_FEATURES=%CARGO_FEATURES% whisper-vulkan"
 if "%WITH_CUDA%"=="1"  set "CARGO_FEATURES=%CARGO_FEATURES% whisper-cuda"
 

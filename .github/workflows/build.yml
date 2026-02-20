@@ -50,25 +50,19 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          call "%CD%\build_windows.bat" cpu
-
-      - name: Build Windows OpenBLAS
-        shell: cmd
-        run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          call "%CD%\build_windows.bat" openblas
+          call "%CD%\build_windows.bat" cpu openblas
 
       - name: Build Windows Vulkan
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          call "%CD%\build_windows.bat" vulkan
+          call "%CD%\build_windows.bat" vulkan openblas
 
       - name: Build Windows CUDA
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          call "%CD%\build_windows.bat" cuda
+          call "%CD%\build_windows.bat" cuda openblas
 
       # ----------------------
       # Upload artifacts

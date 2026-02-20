@@ -33,6 +33,12 @@ fn get_home_dir() -> String {
 }
 
 fn main() {
+  // make openblas static build work
+  if let Ok(lib_dir) = std::env::var("OPENBLAS_LIB_DIR") {
+    println!("cargo:rustc-link-search=native={}", lib_dir);
+    println!("cargo:rustc-link-lib=static=openblas");
+  }
+
   let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
   let is_release = env::var("PROFILE").unwrap_or_default() == "release";
   let dest = Path::new(&out_dir).join("embedded");
