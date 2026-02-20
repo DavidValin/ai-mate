@@ -1,4 +1,5 @@
 @echo off
+setlocal DisableDelayedExpansion
 
 REM ==========================================================
 REM CONFIG
@@ -31,11 +32,11 @@ rmdir /s /q "%DIST_DIR%" 2>nul
 REM ==========================================================
 REM CHECK REQUIRED TOOLS
 REM ==========================================================
-where cl.exe >nul 2>nul || (echo ERROR: Open "x64 Native Tools Command Prompt for VS" & exit /b 1)
-where cmake >nul 2>nul || (echo ERROR: cmake not found & exit /b 1)
-where git >nul 2>nul || (echo ERROR: git not found & exit /b 1)
-where cargo >nul 2>nul || (echo ERROR: cargo not found & exit /b 1)
-where powershell >nul 2>nul || (echo ERROR: powershell not found & exit /b 1)
+where cl.exe >nul 2>nul || (echo ERROR: Open "x64 Native Tools Command Prompt for VS" ^& exit /b 1)
+where cmake >nul 2>nul || (echo ERROR: cmake not found ^& exit /b 1)
+where git >nul 2>nul || (echo ERROR: git not found ^& exit /b 1)
+where cargo >nul 2>nul || (echo ERROR: cargo not found ^& exit /b 1)
+where powershell >nul 2>nul || (echo ERROR: powershell not found ^& exit /b 1)
 
 REM ==========================================================
 REM USE DYNAMIC RUST CRT TO MATCH ONNX /MD
@@ -110,9 +111,10 @@ if "%WITH_CUDA%"=="1" (
         echo CUDA successfully installed for build.
     ) else (
         echo CUDA already present.
+        setlocal EnableDelayedExpansion
         for %%I in (nvcc.exe) do set "CUDA_BIN=%%~dp$PATH:I"
         for %%I in ("!CUDA_BIN!..\") do set "CUDA_PATH=%%~fI"
-        set "CUDAToolkit_ROOT=!CUDA_PATH!"
+        endlocal & set "CUDAToolkit_ROOT=%CUDA_PATH%"
     )
     echo CUDA_PATH = %CUDA_PATH%
 )
@@ -123,24 +125,22 @@ REM ==========================================================
 if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
     echo === Building eSpeak NG ===
     if not exist "%ESPEAK_SRC%" git clone https://github.com/espeak-ng/espeak-ng "%ESPEAK_SRC%" || exit /b 1
-    cmake -S "%ESPEAK_SRC%" ^
-          -B "%ESPEAK_BUILD%" ^
-          -G "Visual Studio 17 2022" ^
-          -A x64 ^
-          -DCMAKE_BUILD_TYPE=Release ^
-          -DCMAKE_INSTALL_PREFIX="%ESPEAK_INSTALL%" ^
-          -DBUILD_SHARED_LIBS=OFF ^
-          -DESPEAKNG_BUILD_TESTS=OFF ^
-          -DESPEAKNG_BUILD_EXAMPLES=OFF ^
-          -DESPEAKNG_BUILD_PROGRAM=OFF ^
-          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL ^
-          -DCMAKE_C_FLAGS="/MD" ^
-          -DCMAKE_CXX_FLAGS="/MD"
+    cmake -S "%ESPEAK_SRC%"^
+-B "%ESPEAK_BUILD%"^
+-G "Visual Studio 17 2022"^
+-A x64^
+-DCMAKE_BUILD_TYPE=Release^
+-DCMAKE_INSTALL_PREFIX="%ESPEAK_INSTALL%"^
+-DBUILD_SHARED_LIBS=OFF^
+-DESPEAKNG_BUILD_TESTS=OFF^
+-DESPEAKNG_BUILD_EXAMPLES=OFF^
+-DESPEAKNG_BUILD_PROGRAM=OFF^
+-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL^
+-DCMAKE_C_FLAGS="/MD"^
+-DCMAKE_CXX_FLAGS="/MD"
 
     REM Disable delayed expansion only for the install step to avoid ! in filenames
-    setlocal DisableDelayedExpansion
     cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL || exit /b 1
-    endlocal
 )
 
 REM ==========================================================
@@ -172,15 +172,15 @@ if "%WITH_OPENBLAS%"=="1" (
         mkdir "%tmp_build%\OpenBLAS\build" 2>nul
 
         pushd "%tmp_build%\OpenBLAS"
-        cmake -S . ^
-              -B build ^
-              -G "Visual Studio 17 2022" ^
-              -A x64 ^
-              -DBUILD_SHARED_LIBS=OFF ^
-              -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
-              -DCMAKE_INSTALL_PREFIX="%PREBUILT_OPENBLAS_DIR%" ^
-              -DNO_LAPACK=ON ^
-              -DNO_TEST=ON
+        cmake -S .^
+-B build^
+-G "Visual Studio 17 2022"^
+-A x64^
+-DBUILD_SHARED_LIBS=OFF^
+-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded^
+-DCMAKE_INSTALL_PREFIX="%PREBUILT_OPENBLAS_DIR%"^
+-DNO_LAPACK=ON^
+-DNO_TEST=ON
         cmake --build build --config Release --target INSTALL || exit /b 1
         popd
 
@@ -205,21 +205,21 @@ if "%WITH_OPENBLAS%"=="1" (
     set "CMAKE_LIBRARY_PATH=%PREBUILT_OPENBLAS_DIR%\lib"
 
     REM --- CMake arguments for Windows static OpenBLAS linking ---
-    set "CMAKE_ARGS=-DBLAS_LIBRARIES=%BLAS_LIBRARIES% ^
-    -DBLAS_INCLUDE_DIRS=%BLAS_INCLUDE_DIRS% ^
-    -DBLAS_LIBRARY_DIR=%PREBUILT_OPENBLAS_DIR%\lib ^
-    -DGGML_BLAS=ON ^
-    -DGGML_BLAS_VENDOR=OpenBLAS ^
-    -DGGML_BLAS_LIBRARIES=%BLAS_LIBRARIES% ^
-    -DGGML_BLA_STATIC=ON ^
-    -DBLA_VENDOR=OpenBLAS ^
-    -DOpenBLAS_ROOT=%PREBUILT_OPENBLAS_DIR% ^
-    -DBLA_STATIC=ON ^
-    -DBLA_SIZEOF_INTEGER=4 ^
-    -DOpenBLAS_LIBRARY=%OPENBLAS_STATIC% ^
-    -DOpenBLAS_LIBRARIES=%OPENBLAS_STATIC% ^
-    -DOpenBLAS_DIR=%PREBUILT_OPENBLAS_DIR% ^
-    -DOpenBLAS_INCLUDE_DIR=%OpenBLAS_INCLUDE_DIR%"
+    set "CMAKE_ARGS=-DBLAS_LIBRARIES=%BLAS_LIBRARIES%^
+-DBLAS_INCLUDE_DIRS=%BLAS_INCLUDE_DIRS%^
+-DBLAS_LIBRARY_DIR=%PREBUILT_OPENBLAS_DIR%\lib^
+-DGGML_BLAS=ON^
+-DGGML_BLAS_VENDOR=OpenBLAS^
+-DGGML_BLAS_LIBRARIES=%BLAS_LIBRARIES%^
+-DGGML_BLA_STATIC=ON^
+-DBLA_VENDOR=OpenBLAS^
+-DOpenBLAS_ROOT=%PREBUILT_OPENBLAS_DIR%^
+-DBLA_STATIC=ON^
+-DBLA_SIZEOF_INTEGER=4^
+-DOpenBLAS_LIBRARY=%OPENBLAS_STATIC%^
+-DOpenBLAS_LIBRARIES=%OPENBLAS_STATIC%^
+-DOpenBLAS_DIR=%PREBUILT_OPENBLAS_DIR%^
+-DOpenBLAS_INCLUDE_DIR=%OpenBLAS_INCLUDE_DIR%"
 )
 
 REM ==========================================================
@@ -237,22 +237,22 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
     if "%WITH_CUDA%"=="1" set "ONNX_CUDA_FLAG=ON"
     if "%WITH_VULKAN%"=="1" set "ONNX_VULKAN_FLAG=ON"
 
-    cmake -S "%ONNX_SRC%\cmake" ^
-          -B "%ONNX_BUILD%" ^
-          -G "Visual Studio 17 2022" ^
-          -A x64 ^
-          -DCMAKE_BUILD_TYPE=Release ^
-          -DBUILD_SHARED_LIBS=OFF ^
-          -Donnxruntime_BUILD_SHARED_LIB=OFF ^
-          -Donnxruntime_MSVC_STATIC_RUNTIME=OFF ^
-          -Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG% ^
-          -Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG% ^
-          -Donnxruntime_USE_EIGEN=ON ^
-          -Donnxruntime_USE_OPENMP=OFF ^
-          -Donnxruntime_BUILD_UNIT_TESTS=OFF ^
-          -Donnxruntime_BUILD_TESTS=OFF ^
-          -Donnxruntime_ENABLE_TESTING=OFF ^
-          -DBUILD_TESTING=OFF
+    cmake -S "%ONNX_SRC%\cmake"^
+-B "%ONNX_BUILD%"^
+-G "Visual Studio 17 2022"^
+-A x64^
+-DCMAKE_BUILD_TYPE=Release^
+-DBUILD_SHARED_LIBS=OFF^
+-Donnxruntime_BUILD_SHARED_LIB=OFF^
+-Donnxruntime_MSVC_STATIC_RUNTIME=OFF^
+-Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG%^
+-Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG%^
+-Donnxruntime_USE_EIGEN=ON^
+-Donnxruntime_USE_OPENMP=OFF^
+-Donnxruntime_BUILD_UNIT_TESTS=OFF^
+-Donnxruntime_BUILD_TESTS=OFF^
+-Donnxruntime_ENABLE_TESTING=OFF^
+-DBUILD_TESTING=OFF
 
     cmake --build "%ONNX_BUILD%" --config Release || exit /b 1
 )
