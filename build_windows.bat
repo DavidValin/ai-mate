@@ -126,18 +126,18 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
     echo === Building eSpeak NG ===
     if not exist "%ESPEAK_SRC%" git clone https://github.com/espeak-ng/espeak-ng "%ESPEAK_SRC%" || exit /b 1
     cmake -S "%ESPEAK_SRC%"^
--B "%ESPEAK_BUILD%"^
--G "Visual Studio 17 2022"^
--A x64^
--DCMAKE_BUILD_TYPE=Release^
--DCMAKE_INSTALL_PREFIX="%ESPEAK_INSTALL%"^
--DBUILD_SHARED_LIBS=OFF^
--DESPEAKNG_BUILD_TESTS=OFF^
--DESPEAKNG_BUILD_EXAMPLES=OFF^
--DESPEAKNG_BUILD_PROGRAM=OFF^
--DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL^
--DCMAKE_C_FLAGS="/MD"^
--DCMAKE_CXX_FLAGS="/MD"
+      -B "%ESPEAK_BUILD%"^
+      -G "Visual Studio 17 2022"^
+      -A x64^
+      -DCMAKE_BUILD_TYPE=Release^
+      -DCMAKE_INSTALL_PREFIX="%ESPEAK_INSTALL%"^
+      -DBUILD_SHARED_LIBS=OFF^
+      -DESPEAKNG_BUILD_TESTS=OFF^
+      -DESPEAKNG_BUILD_EXAMPLES=OFF^
+      -DESPEAKNG_BUILD_PROGRAM=OFF^
+      -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL^
+      -DCMAKE_C_FLAGS="/MD"^
+      -DCMAKE_CXX_FLAGS="/MD"
 
     REM Disable delayed expansion only for the install step to avoid ! in filenames
     cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL || exit /b 1
@@ -173,14 +173,14 @@ if "%WITH_OPENBLAS%"=="1" (
 
         pushd "%tmp_build%\OpenBLAS"
         cmake -S .^
--B build^
--G "Visual Studio 17 2022"^
--A x64^
--DBUILD_SHARED_LIBS=OFF^
--DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded^
--DCMAKE_INSTALL_PREFIX="%PREBUILT_OPENBLAS_DIR%"^
--DNO_LAPACK=ON^
--DNO_TEST=ON
+          -B build^
+          -G "Visual Studio 17 2022"^
+          -A x64^
+          -DBUILD_SHARED_LIBS=OFF^
+          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded^
+          -DCMAKE_INSTALL_PREFIX="%PREBUILT_OPENBLAS_DIR%"^
+          -DNO_LAPACK=ON^
+          -DNO_TEST=ON
         cmake --build build --config Release --target INSTALL || exit /b 1
         popd
 
@@ -206,20 +206,20 @@ if "%WITH_OPENBLAS%"=="1" (
 
     REM --- CMake arguments for Windows static OpenBLAS linking ---
     set "CMAKE_ARGS=-DBLAS_LIBRARIES=%BLAS_LIBRARIES%^
--DBLAS_INCLUDE_DIRS=%BLAS_INCLUDE_DIRS%^
--DBLAS_LIBRARY_DIR=%PREBUILT_OPENBLAS_DIR%\lib^
--DGGML_BLAS=ON^
--DGGML_BLAS_VENDOR=OpenBLAS^
--DGGML_BLAS_LIBRARIES=%BLAS_LIBRARIES%^
--DGGML_BLA_STATIC=ON^
--DBLA_VENDOR=OpenBLAS^
--DOpenBLAS_ROOT=%PREBUILT_OPENBLAS_DIR%^
--DBLA_STATIC=ON^
--DBLA_SIZEOF_INTEGER=4^
--DOpenBLAS_LIBRARY=%OPENBLAS_STATIC%^
--DOpenBLAS_LIBRARIES=%OPENBLAS_STATIC%^
--DOpenBLAS_DIR=%PREBUILT_OPENBLAS_DIR%^
--DOpenBLAS_INCLUDE_DIR=%OpenBLAS_INCLUDE_DIR%"
+      -DBLAS_INCLUDE_DIRS=%BLAS_INCLUDE_DIRS%^
+      -DBLAS_LIBRARY_DIR=%PREBUILT_OPENBLAS_DIR%\lib^
+      -DGGML_BLAS=ON^
+      -DGGML_BLAS_VENDOR=OpenBLAS^
+      -DGGML_BLAS_LIBRARIES=%BLAS_LIBRARIES%^
+      -DGGML_BLA_STATIC=ON^
+      -DBLA_VENDOR=OpenBLAS^
+      -DOpenBLAS_ROOT=%PREBUILT_OPENBLAS_DIR%^
+      -DBLA_STATIC=ON^
+      -DBLA_SIZEOF_INTEGER=4^
+      -DOpenBLAS_LIBRARY=%OPENBLAS_STATIC%^
+      -DOpenBLAS_LIBRARIES=%OPENBLAS_STATIC%^
+      -DOpenBLAS_DIR=%PREBUILT_OPENBLAS_DIR%^
+      -DOpenBLAS_INCLUDE_DIR=%OpenBLAS_INCLUDE_DIR%"
 )
 
 REM ==========================================================
