@@ -39,9 +39,9 @@ where cargo >nul 2>nul || (echo ERROR: cargo not found & exit /b 1)
 where powershell >nul 2>nul || (echo ERROR: powershell not found & exit /b 1)
 
 REM ==========================================================
-REM FORCE STATIC RUST CRT
+REM USE DYNAMIC RUST CRT TO MATCH ONNX /MD
 REM ==========================================================
-set "RUSTFLAGS=-C target-feature=+crt-static"
+set "RUSTFLAGS="
 
 REM ==========================================================
 REM DETERMINE VARIANT
@@ -119,7 +119,7 @@ if "%WIN_WITH_CUDA%"=="1" (
 )
 
 REM ==========================================================
-REM BUILD ESPEAK NG (STATIC LIB, STATIC CRT)
+REM BUILD ESPEAK NG (STATIC LIB, DYNAMIC CRT /MD)
 REM ==========================================================
 if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
     echo === Building eSpeak NG ===
@@ -134,14 +134,14 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
           -DESPEAKNG_BUILD_TESTS=OFF ^
           -DESPEAKNG_BUILD_EXAMPLES=OFF ^
           -DESPEAKNG_BUILD_PROGRAM=OFF ^
-          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
-          -DCMAKE_C_FLAGS="/MT" ^
-          -DCMAKE_CXX_FLAGS="/MT"
+          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL ^
+          -DCMAKE_C_FLAGS="/MD" ^
+          -DCMAKE_CXX_FLAGS="/MD"
     cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL || exit /b 1
 )
 
 REM ==========================================================
-REM BUILD OPENBLAS STATIC AND LINK
+REM BUILD OPENBLAS STATIC AND LINK (unchanged)
 REM ==========================================================
 if "%WIN_WITH_OPENBLAS%"=="1" (
     if not exist "%OPENBLAS_DIR%\lib\libopenblas.lib" (
@@ -158,10 +158,8 @@ if "%WIN_WITH_OPENBLAS%"=="1" (
         cmake --build "%OPENBLAS_DIR%\build" --config Release --target INSTALL || exit /b 1
         echo OpenBLAS static library ready.
     )
-    REM Set environment for Rust build to link OpenBLAS
     set "OPENBLAS_LIB_DIR=%OPENBLAS_DIR%\install\lib"
     set "OPENBLAS_INCLUDE_DIR=%OPENBLAS_DIR%\install\include"
-    REM Pass both lib path and include path to Rust
     set "RUSTFLAGS=%RUSTFLAGS% -C link-args=\"/LIBPATH:%OPENBLAS_LIB_DIR% libopenblas.lib\" -C include=%OPENBLAS_INCLUDE_DIR%"
 )
 
