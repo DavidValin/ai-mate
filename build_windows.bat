@@ -52,21 +52,21 @@ set "VARIANT=%~1"
 if "%VARIANT%"=="" set "VARIANT=cpu"
 
 if "%VARIANT%"=="cpu" (
-    set WIN_WITH_OPENBLAS=0
-    set WIN_WITH_CUDA=0
-    set WIN_WITH_VULKAN=0
+    set WITH_OPENBLAS=0
+    set WITH_CUDA=0
+    set WITH_VULKAN=0
 ) else if "%VARIANT%"=="openblas" (
-    set WIN_WITH_OPENBLAS=1
-    set WIN_WITH_CUDA=0
-    set WIN_WITH_VULKAN=0
+    set WITH_OPENBLAS=1
+    set WITH_CUDA=0
+    set WITH_VULKAN=0
 ) else if "%VARIANT%"=="vulkan" (
-    set WIN_WITH_OPENBLAS=0
-    set WIN_WITH_CUDA=0
-    set WIN_WITH_VULKAN=1
+    set WITH_OPENBLAS=0
+    set WITH_CUDA=0
+    set WITH_VULKAN=1
 ) else if "%VARIANT%"=="cuda" (
-    set WIN_WITH_OPENBLAS=0
-    set WIN_WITH_CUDA=1
-    set WIN_WITH_VULKAN=0
+    set WITH_OPENBLAS=0
+    set WITH_CUDA=1
+    set WITH_VULKAN=0
 ) else (
     echo ERROR: Unknown variant "%VARIANT%"
     exit /b 1
@@ -85,7 +85,7 @@ mkdir "%VENDOR_DIR%" >nul 2>nul
 REM ==========================================================
 REM ENSURE CUDA TOOLKIT IF REQUIRED (BUILD-TIME)
 REM ==========================================================
-if "%WIN_WITH_CUDA%"=="1" (
+if "%WITH_CUDA%"=="1" (
     where nvcc >nul 2>nul
     if errorlevel 1 (
         echo CUDA not detected. Installing CUDA Toolkit for build...
@@ -145,7 +145,7 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
 REM ==========================================================
 REM BUILD OPENBLAS STATIC AND LINK (unchanged)
 REM ==========================================================
-if "%WIN_WITH_OPENBLAS%"=="1" (
+if "%WITH_OPENBLAS%"=="1" (
     if not exist "%OPENBLAS_DIR%\lib\libopenblas.lib" (
         echo === Building OpenBLAS static with MSVC ===
         if not exist "%OPENBLAS_DIR%" git clone --branch v0.3.30 https://github.com/xianyi/OpenBLAS "%OPENBLAS_DIR%" || exit /b 1
@@ -177,8 +177,8 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
 
     set "ONNX_CUDA_FLAG=OFF"
     set "ONNX_VULKAN_FLAG=OFF"
-    if "%WIN_WITH_CUDA%"=="1" set "ONNX_CUDA_FLAG=ON"
-    if "%WIN_WITH_VULKAN%"=="1" set "ONNX_VULKAN_FLAG=ON"
+    if "%WITH_CUDA%"=="1" set "ONNX_CUDA_FLAG=ON"
+    if "%WITH_VULKAN%"=="1" set "ONNX_VULKAN_FLAG=ON"
 
     cmake -S "%ONNX_SRC%\cmake" ^
           -B "%ONNX_BUILD%" ^
@@ -212,10 +212,11 @@ REM BUILD RUST BINARY WITH FEATURES
 REM ==========================================================
 set "TARGET=x86_64-pc-windows-msvc"
 
-REM Always enable OpenBLAS, optionally add Vulkan or CUDA
-set "CARGO_FEATURES=whisper-openblas"
-if "%VARIANT%"=="vulkan" set "CARGO_FEATURES=%CARGO_FEATURES% whisper-vulkan"
-if "%VARIANT%"=="cuda"  set "CARGO_FEATURES=%CARGO_FEATURES% whisper-cuda"
+REM optionally add Vulkan or CUDA
+set "CARGO_FEATURES="
+if "%WITH_OPENBLAS%"=="1" set "CARGO_FEATURES=whisper-openblas"
+if "%WITH_VULKAN%"=="1" set "CARGO_FEATURES=%CARGO_FEATURES% whisper-vulkan"
+if "%WITH_CUDA%"=="1"  set "CARGO_FEATURES=%CARGO_FEATURES% whisper-cuda"
 
 cargo build --release --target %TARGET% --features "%CARGO_FEATURES%" || exit /b 1
 
