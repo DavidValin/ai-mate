@@ -9,7 +9,7 @@
 
 ### Status
 
-✅ First release ready! [Download](https://github.com/DavidValin/ai-mate/releases/tag/0.3.0)
+✅ Ready to kick in! [Download](https://github.com/DavidValin/ai-mate/releases)
 
 ## How it works
 
@@ -34,7 +34,7 @@
 - 📌 Interrupt: `press "<ESCAPE>" TWICE to interrupt the current response alltogether`
 - 📌 Push to Talk mode (PTT): `run it with --ptt and keep <SPACE> while talking and release to stop recording`
 - 📌 Voice speed change: `change the agent voice speed by pressing <ARROW_UP> / <ARROW_DOWN> (applicable to next response)`
-- 📌 Voice change: `change the agent voice by pressing <ARROW_LEFT> / <ARROW_RIGHT> (applicable to next response)`
+- 📌 Voice change (realtime): `change the agent voice by pressing <ARROW_LEFT> / <ARROW_RIGHT> (applicable to next response)`
 - 📌 Integrated `whisper`
 - 📌 Integrated `kokoro TTS` system
 - 📌 Interface with `OpenTTS` system
@@ -58,6 +58,9 @@ You can run the models locally (by default) or remotely by configuring the base 
 ## Acceleration support
 
 Do you have GPU? (nvidia? an apple computer?) Great! then ai-mate speed is at lighting speed =)
+
+* To be able to use acceleration, pick the built version for your hardware from [Releases list](https://github.com/DavidValin/ai-mate/releases)
+* For CUDA install CUDA Toolkit. For Vulkan install VULKAN SDK
 
 ```
 Platform   Arch    CPU    OpenBLAS   CUDA   Metal   Vulkan
@@ -138,7 +141,7 @@ ai-mate \
   --end-silence-ms 850 \
   --whisper-model-path ~/.whisper-models/ggml-tiny.bin \
   --model "llama3.2:3b" \
-  --ollama-url "http://localhost:11434/api/generate"
+  --ollama-url "http://localhost:11434"
 ```
 
 You can just override a specific variable, for example:
@@ -175,15 +178,27 @@ ai-mate --help
 
 ***Linux***
 - (require docker for building the image)
+- Openblas is always included in all variants by default
+
+Examples:
 ```
-LINUX_WITH_VULKAN=0 ./build_linux.sh
+WITH_CUDA=0 ./build_linux.sh --arch amd64
+WITH_CUDA=1 ./build_linux.sh --arch amd64
+LINUX_WITH_VULKAN=1 WITH_CUDA=0 ./build_linux.sh --arch amd64
+
+WITH_CUDA=0 ./build_linux.sh --arch arm64
+LINUX_WITH_VULKAN=1 WITH_CUDA=0 ./build_linux.sh --arch arm64
 ```
 
 ***Windows***
 - You can only build the Windows build from windows
 - You need to install [Visual CPP Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools)
+
 ```
-set WIN_WITH_VULKAN=0 && build_windows.bat
+build_windows.bat cpu
+build_windows.bat cuda
+build_windows.bat openblas
+build_windows.bat vulkan
 ```
 
 ## Tricks
