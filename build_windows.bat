@@ -54,17 +54,21 @@ if "%VARIANT%"=="cpu" (
     set WITH_OPENBLAS=1
     set WITH_CUDA=0
     set WITH_VULKAN=0
-) else if "%VARIANT%"=="vulkan" (
-    set WITH_OPENBLAS=1
-    set WITH_CUDA=0
-    set WITH_VULKAN=1
-) else if "%VARIANT%"=="cuda" (
-    set WITH_OPENBLAS=1
-    set WITH_CUDA=1
-    set WITH_VULKAN=0
 ) else (
-    echo ERROR: Unknown variant "%VARIANT%"
-    exit /b 1
+    if "%VARIANT%"=="vulkan" (
+      set WITH_OPENBLAS=1
+      set WITH_CUDA=0
+      set WITH_VULKAN=1
+    ) else (
+      if "%VARIANT%"=="cuda" (
+        set WITH_OPENBLAS=1
+        set WITH_CUDA=1
+        set WITH_VULKAN=0
+      ) else (
+        echo ERROR: Unknown variant "%VARIANT%"
+        exit /b 1
+      )
+    )
 )
 
 echo.
@@ -139,8 +143,8 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
       -DCMAKE_C_FLAGS="/MD"^
       -DCMAKE_CXX_FLAGS="/MD"
 
-    REM Disable delayed expansion only for the install step to avoid ! in filenames
-    cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL || exit /b 1
+    cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL
+    if errorlevel 1 exit /b 1
 )
 
 REM ==========================================================
@@ -238,21 +242,21 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
     if "%WITH_VULKAN%"=="1" set "ONNX_VULKAN_FLAG=ON"
 
     cmake -S "%ONNX_SRC%\cmake"^
--B "%ONNX_BUILD%"^
--G "Visual Studio 17 2022"^
--A x64^
--DCMAKE_BUILD_TYPE=Release^
--DBUILD_SHARED_LIBS=OFF^
--Donnxruntime_BUILD_SHARED_LIB=OFF^
--Donnxruntime_MSVC_STATIC_RUNTIME=OFF^
--Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG%^
--Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG%^
--Donnxruntime_USE_EIGEN=ON^
--Donnxruntime_USE_OPENMP=OFF^
--Donnxruntime_BUILD_UNIT_TESTS=OFF^
--Donnxruntime_BUILD_TESTS=OFF^
--Donnxruntime_ENABLE_TESTING=OFF^
--DBUILD_TESTING=OFF
+      -B "%ONNX_BUILD%"^
+      -G "Visual Studio 17 2022"^
+      -A x64^
+      -DCMAKE_BUILD_TYPE=Release^
+      -DBUILD_SHARED_LIBS=OFF^
+      -Donnxruntime_BUILD_SHARED_LIB=OFF^
+      -Donnxruntime_MSVC_STATIC_RUNTIME=OFF^
+      -Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG%^
+      -Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG%^
+      -Donnxruntime_USE_EIGEN=ON^
+      -Donnxruntime_USE_OPENMP=OFF^
+      -Donnxruntime_BUILD_UNIT_TESTS=OFF^
+      -Donnxruntime_BUILD_TESTS=OFF^
+      -Donnxruntime_ENABLE_TESTING=OFF^
+      -DBUILD_TESTING=OFF
 
     cmake --build "%ONNX_BUILD%" --config Release || exit /b 1
 )
@@ -293,7 +297,10 @@ REM UPLOAD ARTIFACT IMMEDIATELY
 REM ==========================================================
 if "%UPLOAD_ENABLED%"=="1" (
     echo Uploading artifact for %VARIANT%...
-    gh run upload-artifact "%BIN_BASE%-%VARIANT%" "%DST_BIN%" || echo WARNING: Upload failed
+    gh run upload-artifact "%BIN_BASE%-%VARIANT%" "%DST_BIN%"
+    if errorlevel 1 (
+        echo WARNING: Upload failed
+    )
 )
 
 echo.
