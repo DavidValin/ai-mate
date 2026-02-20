@@ -187,7 +187,7 @@ if not exist "%ONNX_BUILD%\Release\onnxruntime.lib" (
           -DCMAKE_BUILD_TYPE=Release ^
           -DBUILD_SHARED_LIBS=OFF ^
           -Donnxruntime_BUILD_SHARED_LIB=OFF ^
-          -Donnxruntime_MSVC_STATIC_RUNTIME=OFF ^ REM <- MD runtime
+          -Donnxruntime_MSVC_STATIC_RUNTIME=OFF ^
           -Donnxruntime_USE_CUDA=%ONNX_CUDA_FLAG% ^
           -Donnxruntime_USE_VULKAN=%ONNX_VULKAN_FLAG% ^
           -Donnxruntime_USE_EIGEN=ON ^
