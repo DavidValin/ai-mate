@@ -1,5 +1,4 @@
 @echo off
-setlocal EnableDelayedExpansion
 
 REM ==========================================================
 REM CONFIG
