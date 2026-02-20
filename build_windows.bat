@@ -208,10 +208,16 @@ set "ONNXRUNTIME_INCLUDE_DIR=%ONNX_SRC%\include"
 set "ONNXRUNTIME_LIB_DIR=%ONNX_BUILD%\Release"
 
 REM ==========================================================
-REM BUILD RUST BINARY
+REM BUILD RUST BINARY WITH FEATURES
 REM ==========================================================
 set "TARGET=x86_64-pc-windows-msvc"
-cargo build --release --target %TARGET% || exit /b 1
+
+REM Always enable OpenBLAS, optionally add Vulkan or CUDA
+set "CARGO_FEATURES=whisper-openblas"
+if "%VARIANT%"=="vulkan" set "CARGO_FEATURES=%CARGO_FEATURES% whisper-vulkan"
+if "%VARIANT%"=="cuda"  set "CARGO_FEATURES=%CARGO_FEATURES% whisper-cuda"
+
+cargo build --release --target %TARGET% --features "%CARGO_FEATURES%" || exit /b 1
 
 set "SRC_BIN=%PROJECT_ROOT%target\%TARGET%\release\%BIN_BASE%.exe"
 set "DST_BIN=%TARGET_DIR%\%VARIANT%\%BIN_BASE%-%VARIANT%.exe"
