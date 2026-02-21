@@ -192,7 +192,7 @@ build_static_espeak_ng() {
   tmp="$(mktemp -d)"
   df="${tmp}/Dockerfile.espeak.static"
   CACHE_BUST="$(date +%s)"
-  img="local/espeak-ng-static:${arch}-${VERSION}-$$"
+  img="local/espeak-ng-static:${arch}-${VERSION}-fixed"
 
   cat > "$df" <<DOCKERFILE
 FROM ubuntu:noble
@@ -209,7 +209,7 @@ RUN git clone --depth 1 https://github.com/espeak-ng/espeak-ng.git /work/espeak-
 
 WORKDIR /work/espeak-ng
 RUN mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release \
+cmake -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_SHARED_LIBS=OFF \
       -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
       -DCMAKE_SKIP_RPATH=ON \
@@ -220,20 +220,29 @@ RUN mkdir build && cd build && \
       -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
       -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
       -DCMAKE_INSTALL_PREFIX=/work/deps/espeak-ng-install .. && \
-    make -j$(nproc) && \
+    make -j\$(nproc) && \
     make install
 
+# Copy dictionaries to host-mount so Rust can see them
 RUN mkdir -p /out/espeak-ng-data && \
-    cp -a ${target_dir}/share/espeak-ng-data/* /out/espeak-ng-data/
+    cp -a /work/deps/espeak-ng-install/share/espeak-ng-data/* /out/espeak-ng-data/ && \
+    chmod -R 755 /out/espeak-ng-data
 DOCKERFILE
 
   local build_args=(--pull)
   [[ "${DOCKER_NO_CACHE}" -eq 1 ]] && build_args+=(--no-cache)
 
-  # Mount host deps folder so the dictionary archive is copied out
+  # Mount host folder to receive the dictionaries
   docker build "${build_args[@]}" --platform="${docker_platform}" -f "$df" -t "$img" "$tmp"
-  docker run --rm --platform="${docker_platform}" -v "${PROJECT_ROOT}/target-cross:/out" "$img"
-  docker image rm -f "$img" >/dev/null 2>&1 || true
+
+  # Run container and copy out the dictionaries
+  docker run --rm --platform="${docker_platform}" \
+    -v "${PROJECT_ROOT}/target-cross:/out" \
+    -e ESPEAK_NG_DIR="/out/espeak-ng-data" \
+    "$img"
+
+  # Keep image for debugging; remove if you want
+  # docker image rm -f "$img" >/dev/null 2>&1 || true
   rm -rf "$tmp"
   echo "✔ eSpeak-ng static build complete for ${arch}"
 }
@@ -316,7 +325,7 @@ RUN if [ "\$WITH_ROCM" = "1" ]; then \
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:\${PATH}"
 RUN rustup update stable
-RUN rustup target add x86_64-unknown-linux-gnu
+RUN rustup target add x86_64-unknown-linux-musl
 WORKDIR /work
 DOCKERFILE
 
@@ -345,7 +354,7 @@ DOCKERFILE
       set -euo pipefail
 
       ARCH=amd64
-      target=x86_64-unknown-linux-gnu
+      target=x86_64-unknown-linux-musl
 
       build_variant() {
         local variant="$1"
@@ -356,13 +365,12 @@ DOCKERFILE
 
         # Force static linking for system libraries except CUDA
         export OPENBLAS_STATIC=1
+        export GGML_BLAS=ON
         export GGML_BLAS_VENDOR=OpenBLAS
         export BLAS_INCLUDE_DIRS=/usr/include
         export BLAS_LIBRARIES=/usr/lib/x86_64-linux-gnu/libopenblas.a
-        export CMAKE_PREFIX_PATH=/usr/include:/usr/lib/x86_64-linux-gnu
 
-        export RUSTFLAGS="-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-arg=-Wl,-static -C link-arg=-Wl,--gc-sections -C link-arg=-Wl,--icf=safe"
-        export CARGO_PROFILE_RELEASE_LTO=false
+        export RUSTFLAGS="-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/lib/x86_64-linux-gnu/libopenblas.a"
         export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
         export CARGO_PROFILE_RELEASE_DEBUG=false
         export CARGO_PROFILE_RELEASE_STRIP=symbols
@@ -370,8 +378,9 @@ DOCKERFILE
 
         export ESPEAK_NG_DIR="/work/deps/espeak-ng-install"
 
+        GGML_CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS -DOPENBLAS_STATIC=ON -DBLAS_LIBRARIES=/usr/lib/x86_64-linux-gnu/libopenblas.a -DBLAS_INCLUDE_DIRS=/usr/include -DCMAKE_PREFIX_PATH=/usr/include:/usr/lib/x86_64-linux-gnu" \
         CARGO_TARGET_DIR="$ctd" \
-        cargo build --release --target "$target" --no-default-features --features "$feats"
+        cargo build --release --target "$target" --features "$feats"
       }
 
       build_variant cpu "'"${FEATURES_CPU}"'"
@@ -389,12 +398,12 @@ DOCKERFILE
       fi
     '
 
-  linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "cpu"
-  if [[ "${WITH_VULKAN}" == "1" ]] && [[ -f "${PROJECT_ROOT}/target-cross/linux-amd64-vulkan/x86_64-unknown-linux-gnu/release/${BIN_NAME}" ]]; then
-    linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "vulkan"
+  linux_copy_out "amd64" "x86_64-unknown-linux-musl" "cpu"
+  if [[ "${WITH_VULKAN}" == "1" ]] && [[ -f "${PROJECT_ROOT}/target-cross/linux-amd64-vulkan/x86_64-unknown-linux-musl/release/${BIN_NAME}" ]]; then
+    linux_copy_out "amd64" "x86_64-unknown-linux-musl" "vulkan"
   fi
-  [[ "${WITH_CUDA}" == "1" ]] && linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "cuda"
-  [[ "${WITH_ROCM}" == "1" ]] && linux_copy_out "amd64" "x86_64-unknown-linux-gnu" "rocm"
+  [[ "${WITH_CUDA}" == "1" ]] && linux_copy_out "amd64" "x86_64-unknown-linux-musl" "cuda"
+  [[ "${WITH_ROCM}" == "1" ]] && linux_copy_out "amd64" "x86_64-unknown-linux-musl" "rocm"
 
   docker image rm -f "$img" >/dev/null 2>&1 || true
   rm -rf "$tmp" >/dev/null 2>&1 || true
@@ -448,7 +457,7 @@ RUN set -eux; \
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:\${PATH}"
 RUN rustup update stable
-RUN rustup target add aarch64-unknown-linux-gnu
+RUN rustup target add aarch64-unknown-linux-musl
 WORKDIR /work
 DOCKERFILE
 
@@ -473,7 +482,7 @@ DOCKERFILE
       set -euo pipefail
 
       ARCH=arm64
-      target=aarch64-unknown-linux-gnu
+      target=aarch64-unknown-linux-musl
 
       build_variant() {
         local variant="$1"
@@ -482,15 +491,13 @@ DOCKERFILE
 
         echo "---- Building linux/${ARCH} [$variant] features: $feats"
 
-        # OpenBLAS static + system libraries static
         export OPENBLAS_STATIC=1
+        export GGML_BLAS=ON
         export GGML_BLAS_VENDOR=OpenBLAS
         export BLAS_INCLUDE_DIRS=/usr/include
         export BLAS_LIBRARIES=/usr/lib/aarch64-linux-gnu/libopenblas.a
-        export CMAKE_PREFIX_PATH=/usr/include:/usr/lib/aarch64-linux-gnu
 
-        # Static linking flags for Rust
-        export RUSTFLAGS="-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-arg=-Wl,--gc-sections"
+        export RUSTFLAGS="-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/lib/aarch64-linux-gnu/libopenblas.a"
         export CARGO_PROFILE_RELEASE_LTO=false
         export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
         export CARGO_PROFILE_RELEASE_DEBUG=false
@@ -499,8 +506,9 @@ DOCKERFILE
 
         export ESPEAK_NG_DIR="/work/deps/espeak-ng-install"
 
+        GGML_CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS -DOPENBLAS_STATIC=ON -DBLAS_LIBRARIES=/usr/lib/aarch64-linux-gnu/libopenblas.a -DBLAS_INCLUDE_DIRS=/usr/include -DCMAKE_PREFIX_PATH=/usr/include:/usr/lib/aarch64-linux-gnu" \
         CARGO_TARGET_DIR="$ctd" \
-        cargo build --release --target "$target" --no-default-features --features "$feats"
+        cargo build --release --target "$target" --features "$feats"
       }
 
       # Always build CPU variant statically
@@ -513,9 +521,9 @@ DOCKERFILE
     '
 
   # Copy out artifacts
-  linux_copy_out "arm64" "aarch64-unknown-linux-gnu" "cpu"
-  if [[ "${WITH_VULKAN}" == "1" ]] && [[ -f "${PROJECT_ROOT}/target-cross/linux-arm64-vulkan/aarch64-unknown-linux-gnu/release/${BIN_NAME}" ]]; then
-    linux_copy_out "arm64" "aarch64-unknown-linux-gnu" "vulkan"
+  linux_copy_out "arm64" "aarch64-unknown-linux-musl" "cpu"
+  if [[ "${WITH_VULKAN}" == "1" ]] && [[ -f "${PROJECT_ROOT}/target-cross/linux-arm64-vulkan/aarch64-unknown-linux-musl/release/${BIN_NAME}" ]]; then
+    linux_copy_out "arm64" "aarch64-unknown-linux-musl" "vulkan"
   fi
 
   docker image rm -f "$img" >/dev/null 2>&1 || true
@@ -529,6 +537,16 @@ ensure_espeak_data_archive
 
 if want_arch amd64; then build_linux_amd64_docker_variants; fi
 if want_arch arm64; then build_linux_arm64_docker_variants; fi
+
+
+# -----------------------------
+# Check static build
+# -----------------------------
+for f in "${ARTIFACTS[@]}"; do
+  echo "$f -> ldd check:"
+  ldd "$f" || echo "✔ statically linked (ldd shows not a dynamic ELF)"
+done
+
 
 # -----------------------------
 # Packaging
