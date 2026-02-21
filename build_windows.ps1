@@ -86,7 +86,6 @@ foreach ($dir in $TARGET_DIR, $DIST_DIR, $VENDOR_DIR) {
 
 # ==========================================================
 # ENSURE CUDA TOOLKIT IF REQUIRED (BUILD-TIME)
-# FIXED BOOLEAN CHECK
 # ==========================================================
 if ($WITH_CUDA) {
     $nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
@@ -127,11 +126,13 @@ if ($WITH_CUDA) {
         $env:CUDAToolkit_ROOT = $env:CUDA_PATH
         Write-Host "CUDA_PATH = $env:CUDA_PATH"
     }
-}
+} 
 else {
-    # IMPORTANT: Prevent ONNX from detecting CUDA accidentally
+    # CLEAN CUDA env completely to prevent CMake detecting CUDA
     Remove-Item Env:CUDAToolkit_ROOT -ErrorAction SilentlyContinue
     Remove-Item Env:CUDA_PATH -ErrorAction SilentlyContinue
+    Remove-Item Env:CUDA_HOME -ErrorAction SilentlyContinue
+    Remove-Item Env:CUDA_ROOT -ErrorAction SilentlyContinue
 }
 
 # ==========================================================
