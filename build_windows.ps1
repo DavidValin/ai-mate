@@ -150,8 +150,26 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
     git submodule update --init --recursive --force
     Pop-Location
 
-    $ONNX_CUDA_FLAG   = if ($WITH_CUDA) { "ON" } else { "OFF" }
-    $ONNX_VULKAN_FLAG = if ($WITH_VULKAN) { "ON" } else { "OFF" }
+    # -----------------------------
+    # Set ONNX flags depending on variant
+    # -----------------------------
+    switch ($VARIANT) {
+        "cpu" {
+            $ONNX_CUDA_FLAG   = "OFF"
+            $ONNX_VULKAN_FLAG = "OFF"
+            $ONNX_USE_BLAS    = "ON"
+        }
+        "vulkan" {
+            $ONNX_CUDA_FLAG   = "OFF"
+            $ONNX_VULKAN_FLAG = "ON"
+            $ONNX_USE_BLAS    = "OFF"
+        }
+        "cuda" {
+            $ONNX_CUDA_FLAG   = "ON"
+            $ONNX_VULKAN_FLAG = "OFF"
+            $ONNX_USE_BLAS    = "OFF"
+        }
+    }
 
     cmake -S $ONNX_SRC -B $ONNX_BUILD -G "Visual Studio 17 2022" -A x64 `
         -DCMAKE_BUILD_TYPE=Release `
@@ -162,6 +180,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         -Donnxruntime_USE_VULKAN=$ONNX_VULKAN_FLAG `
         -Donnxruntime_USE_EIGEN=ON `
         -Donnxruntime_USE_OPENMP=ON `
+        -Donnxruntime_USE_BLAS=$ONNX_USE_BLAS `
         -Donnxruntime_BUILD_UNIT_TESTS=OFF `
         -Donnxruntime_BUILD_TESTS=OFF `
         -Donnxruntime_ENABLE_TESTING=OFF `
@@ -227,6 +246,15 @@ if ($WITH_OPENBLAS) {
 # ==========================================================
 $env:ONNXRUNTIME_INCLUDE_DIR = Join-Path $ONNX_SRC "include"
 $env:ONNXRUNTIME_LIB_DIR     = Join-Path $ONNX_BUILD "Release"
+
+# Set ORT crate feature flags
+if ($WITH_CUDA)    { $env:ORT_USE_CUDA = "1" } else { Remove-Item Env:ORT_USE_CUDA -ErrorAction SilentlyContinue }
+if ($WITH_OPENBLAS){ $env:ORT_USE_OPENMP = "1" } else { Remove-Item Env:ORT_USE_OPENMP -ErrorAction SilentlyContinue }
+if ($WITH_VULKAN) { $env:ORT_USE_VULKAN = "1" } else { Remove-Item Env:ORT_USE_VULKAN -ErrorAction SilentlyContinue }
+
+Write-Host "ORT_USE_CUDA = $env:ORT_USE_CUDA"
+Write-Host "ORT_USE_OPENMP = $env:ORT_USE_OPENMP"
+Write-Host "ORT_USE_VULKAN = $env:ORT_USE_VULKAN"
 
 # ==========================================================
 # BUILD RUST BINARY WITH FEATURES
