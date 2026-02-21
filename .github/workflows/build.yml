@@ -45,31 +45,24 @@ jobs:
           curl -L https://github.com/DavidValin/kokoro-tiny/raw/main/models/0.onnx -o "%KOKORO_CACHE%\0.onnx"
 
       # ----------------------
-      # Build Variants (Windows, PowerShell + MSVC)
+      # Build Variants (Windows)
       - name: Build Windows CPU
         shell: pwsh
         run: |
           Write-Host "=== Loading MSVC environment (x64) ==="
-          # Load Visual Studio environment
-          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          Write-Host "=== Running build_windows.ps1 for CPU + OpenBLAS ==="
-          & "$PWD\build_windows.ps1" cpu openblas
+          cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64 && powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" cpu openblas'
 
       - name: Build Windows Vulkan
         shell: pwsh
         run: |
           Write-Host "=== Loading MSVC environment (x64) ==="
-          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          Write-Host "=== Running build_windows.ps1 for Vulkan + OpenBLAS ==="
-          & "$PWD\build_windows.ps1" vulkan openblas
+          cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64 && powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" vulkan openblas'
 
       - name: Build Windows CUDA
         shell: pwsh
         run: |
           Write-Host "=== Loading MSVC environment (x64) ==="
-          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          Write-Host "=== Running build_windows.ps1 for CUDA + OpenBLAS ==="
-          & "$PWD\build_windows.ps1" cuda openblas
+          cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64 && powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" cuda openblas'
 
       # ----------------------
       # Upload artifacts
