@@ -115,7 +115,6 @@ if "%WITH_CUDA%"=="1" (
         echo CUDA successfully installed for build.
     ) else (
         echo CUDA already present.
-        setlocal EnableDelayedExpansion
         for %%I in (nvcc.exe) do set "CUDA_BIN=%%~dp$PATH:I"
         for %%I in ("!CUDA_BIN!..\") do set "CUDA_PATH=%%~fI"
         set "CUDAToolkit_ROOT=%CUDA_PATH%"
@@ -143,7 +142,9 @@ if not exist "%ESPEAK_INSTALL%\lib\espeak-ng.lib" (
       -DCMAKE_C_FLAGS="/MD"^
       -DCMAKE_CXX_FLAGS="/MD"
 
+    setlocal DisableDelayedExpansion
     cmake --build "%ESPEAK_BUILD%" --config Release --target INSTALL
+    endlocal
     if errorlevel 1 exit /b 1
 )
 
