@@ -213,22 +213,10 @@ if ($WITH_OPENBLAS) {
 
         Push-Location (Join-Path $tmp_build "OpenBLAS")
         cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_POSITION_INDEPENDENT_CODE=ON `
-            -DBUILD_SHARED_LIBS=OFF `
-            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
-            -DCMAKE_INSTALL_PREFIX="$PREBUILT_OPENBLAS_DIR" `
-            -DNO_LAPACK=ON `
-            -DNO_TEST=ON `
-            -DUSE_SHARED_LIBS=OFF `
-            -DBUILD_SHARED_LIBS=OFF `
-            -DUSE_OPENMP=ON `
-            -DUSE_MKL=OFF `
-            -DUSE_CUDA=OFF `
-            -DUSE_ROCM=OFF `
-            -DUSE_VULKAN=OFF `
-            -DUSE_TENSORRT=OFF `
-            -DUSE_EIGEN=ON `
-            -DUSE_BLAS=ON
+          -DBUILD_SHARED_LIBS=OFF `
+          -DNO_LAPACK=ON `
+          -DUSE_OPENMP=ON `
+          -DCMAKE_INSTALL_PREFIX="$PREBUILT_OPENBLAS_DIR"
 
         cmake --build build --config Release --target INSTALL
         Pop-Location
@@ -248,6 +236,8 @@ $env:ONNXRUNTIME_INCLUDE_DIR = Join-Path $ONNX_SRC "include"
 $env:ONNXRUNTIME_LIB_DIR     = Join-Path $ONNX_BUILD "Release"
 $env:BLAS_INCLUDE_DIRS       = Join-Path $PREBUILT_OPENBLAS_DIR "include"
 $env:BLAS_LIBRARIES          = $OPENBLAS_LIB
+$env:GGML_BLAS               = "ON"
+$env:GGML_BLAS_VENDOR        = "OpenBLAS"
 
 # Set ORT crate feature flags
 if ($WITH_CUDA)    { $env:ORT_USE_CUDA = "1" } else { Remove-Item Env:ORT_USE_CUDA -ErrorAction SilentlyContinue }
