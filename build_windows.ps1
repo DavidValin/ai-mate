@@ -1,46 +1,12 @@
 # ==========================================================
-# build_windows.ps1 - Complete CI-ready PowerShell Build
+# PowerShell Build Script (MSVC + Safe eSpeak Paths)
 # ==========================================================
-# This script:
-# - Loads MSVC x64 environment
-# - Builds eSpeak NG (static)
-# - Builds OpenBLAS (static)
-# - Builds ONNX Runtime (static)
-# - Supports CPU / Vulkan / CUDA variants
-# - Handles safe paths
-# - Installs CUDA if missing
-# ==========================================================
-
-Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
-
 param(
     [string]$VARIANT = "cpu"
 )
 
-Write-Host "=== Loading MSVC environment (x64) ==="
-
-# Load MSVC environment
-$VsDevCmd = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat"
-if (-not (Test-Path $VsDevCmd)) {
-    Write-Error "VS Dev Command Prompt not found at $VsDevCmd"
-    exit 1
-}
-
-# Import environment variables from VsDevCmd
-cmd /c "`"$VsDevCmd`" -arch=x64 && set" | ForEach-Object {
-    if ($_ -match "^(.*?)=(.*)$") {
-        Set-Item -Path "Env:$($matches[1])" -Value $matches[2]
-    }
-}
-
-# Verify cl.exe
-if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
-    Write-Error "cl.exe not found after loading MSVC. Ensure Visual Studio 2022 x64 Native Tools are installed."
-    exit 1
-}
-
-Write-Host "=== MSVC environment loaded successfully ===`n"
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
 
 # ==========================================================
 # CONFIG
@@ -74,7 +40,7 @@ foreach ($tool in "cl.exe","cmake","git","cargo","powershell") {
 }
 
 # ==========================================================
-# RUST CRT
+# USE DYNAMIC RUST CRT TO MATCH ONNX /MD
 # ==========================================================
 $env:RUSTFLAGS = "-C opt-level=3"
 $env:CARGO_BUILD_JOBS = 1
@@ -82,6 +48,7 @@ $env:CARGO_BUILD_JOBS = 1
 # ==========================================================
 # DETERMINE VARIANT
 # ==========================================================
+
 switch ($VARIANT) {
     "cpu" {
         $WITH_OPENBLAS = $true
@@ -112,23 +79,29 @@ if ($WITH_VULKAN)   { Write-Host "Vulkan: ENABLED" }
 Write-Host "============================================`n"
 
 # ==========================================================
-# CREATE DIRECTORIES
+# CREATE REQUIRED DIRECTORIES
 # ==========================================================
 foreach ($dir in $TARGET_DIR, $DIST_DIR, $VENDOR_DIR) {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 }
 
 # ==========================================================
-# ENSURE CUDA TOOLKIT
+# ENSURE CUDA TOOLKIT IF REQUIRED (BUILD-TIME)
 # ==========================================================
-if ($WITH_CUDA) {
+if ($WITH_CUDA -eq 1) {
     $nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
     if (-not $nvcc) {
-        Write-Host "CUDA not detected. Installing CUDA Toolkit..."
+        Write-Host "CUDA not detected. Installing CUDA Toolkit for build..."
         $CUDA_VERSION = "12.3.2"
         $CUDA_INSTALLER = "$env:TEMP\cuda_installer.exe"
         $CUDA_URL = "https://developer.download.nvidia.com/compute/cuda/$CUDA_VERSION/network_installers/cuda_${CUDA_VERSION}_windows_network.exe"
+
         Invoke-WebRequest -Uri $CUDA_URL -OutFile $CUDA_INSTALLER -UseBasicParsing
+
+        if (-not (Test-Path $CUDA_INSTALLER)) {
+            Write-Error "Failed to download CUDA installer."
+            exit 1
+        }
 
         $arguments = "--silent --toolkit --installpath `"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v$CUDA_VERSION`""
         $proc = Start-Process -FilePath $CUDA_INSTALLER -ArgumentList $arguments -Wait -PassThru
@@ -140,15 +113,24 @@ if ($WITH_CUDA) {
         $env:CUDA_PATH = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v$CUDA_VERSION"
         $env:Path = "$env:CUDA_PATH\bin;$env:Path"
         $env:CUDAToolkit_ROOT = $env:CUDA_PATH
+
+        if (-not (Get-Command nvcc -ErrorAction SilentlyContinue)) {
+            Write-Error "CUDA installed but nvcc not found in PATH."
+            exit 1
+        }
+
+        Write-Host "CUDA successfully installed for build."
     }
     else {
+        Write-Host "CUDA already present."
         $env:CUDA_PATH = Split-Path -Parent $nvcc.Source
         $env:CUDAToolkit_ROOT = $env:CUDA_PATH
+        Write-Host "CUDA_PATH = $env:CUDA_PATH"
     }
 }
 
 # ==========================================================
-# BUILD eSpeak NG
+# BUILD eSpeak NG (STATIC LIB, DYNAMIC CRT /MD)
 # ==========================================================
 $ESPEAK_INSTALL_SAFE = $ESPEAK_INSTALL
 if (-not (Test-Path (Join-Path $ESPEAK_INSTALL_SAFE "lib\espeak-ng.lib"))) {
@@ -156,6 +138,7 @@ if (-not (Test-Path (Join-Path $ESPEAK_INSTALL_SAFE "lib\espeak-ng.lib"))) {
     if (-not (Test-Path $ESPEAK_SRC)) {
         git clone "https://github.com/espeak-ng/espeak-ng" $ESPEAK_SRC
     }
+
     $CMAKE_ARGS = @(
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_INSTALL_PREFIX=$ESPEAK_INSTALL_SAFE",
@@ -167,6 +150,7 @@ if (-not (Test-Path (Join-Path $ESPEAK_INSTALL_SAFE "lib\espeak-ng.lib"))) {
         "-DCMAKE_C_FLAGS=/MD",
         "-DCMAKE_CXX_FLAGS=/MD"
     )
+
     cmake -S $ESPEAK_SRC -B $ESPEAK_BUILD -G "Visual Studio 17 2022" -A x64 $CMAKE_ARGS
     cmake --build $ESPEAK_BUILD --config Release --target INSTALL
 } else {
@@ -174,12 +158,13 @@ if (-not (Test-Path (Join-Path $ESPEAK_INSTALL_SAFE "lib\espeak-ng.lib"))) {
 }
 
 # ==========================================================
-# BUILD OPENBLAS
+# BUILD OPENBLAS STATIC AND LINK
 # ==========================================================
 if ($WITH_OPENBLAS) {
-    Write-Host "=== Building OpenBLAS ==="
+    Write-Host "=== Windows build [OpenBLAS] variant ==="
+
     $PREBUILT_OPENBLAS_DIR = Join-Path $PROJECT_ROOT "assets\openblas-windows-portable"
-    $OPENBLAS_LIB = Join-Path $PREBUILT_OPENBLAS_DIR "lib\libopenblas.lib"
+    $OPENBLAS_LIB           = Join-Path $PREBUILT_OPENBLAS_DIR "lib\libopenblas.lib"
 
     foreach ($dir in @("$PREBUILT_OPENBLAS_DIR\lib","$PREBUILT_OPENBLAS_DIR\include")) {
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
@@ -200,19 +185,20 @@ if ($WITH_OPENBLAS) {
             -DCMAKE_INSTALL_PREFIX="$PREBUILT_OPENBLAS_DIR" `
             -DNO_LAPACK=ON `
             -DNO_TEST=ON
+
         cmake --build build --config Release --target INSTALL
         Pop-Location
 
         Remove-Item -Recurse -Force $tmp_build
     }
 
-    $env:OpenBLAS_DIR = $PREBUILT_OPENBLAS_DIR
+    $env:OpenBLAS_DIR      = $PREBUILT_OPENBLAS_DIR
     $env:OpenBLAS_LIBRARIES = $OPENBLAS_LIB
     $env:OpenBLAS_INCLUDE_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "include"
 }
 
 # ==========================================================
-# BUILD ONNX Runtime
+# BUILD ONNX RUNTIME
 # ==========================================================
 if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
     Write-Host "=== Building ONNX Runtime ==="
@@ -223,7 +209,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
     git submodule update --init --recursive --force
     Pop-Location
 
-    $ONNX_CUDA_FLAG = if ($WITH_CUDA) { "ON" } else { "OFF" }
+    $ONNX_CUDA_FLAG   = if ($WITH_CUDA) { "ON" } else { "OFF" }
     $ONNX_VULKAN_FLAG = if ($WITH_VULKAN) { "ON" } else { "OFF" }
 
     cmake -S (Join-Path $ONNX_SRC "cmake") -B $ONNX_BUILD -G "Visual Studio 17 2022" -A x64 `
@@ -252,9 +238,10 @@ $env:ONNXRUNTIME_INCLUDE_DIR = Join-Path $ONNX_SRC "include"
 $env:ONNXRUNTIME_LIB_DIR     = Join-Path $ONNX_BUILD "Release"
 
 # ==========================================================
-# BUILD RUST BINARY
+# BUILD RUST BINARY WITH FEATURES
 # ==========================================================
 $TARGET = "x86_64-pc-windows-msvc"
+
 $CARGO_FEATURES = @()
 if ($WITH_OPENBLAS) { $CARGO_FEATURES += "whisper-openblas" }
 if ($WITH_VULKAN)   { $CARGO_FEATURES += "whisper-vulkan" }

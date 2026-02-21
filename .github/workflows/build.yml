@@ -46,23 +46,51 @@ jobs:
 
       # ----------------------
       # Build Variants (Windows)
+
       - name: Build Windows CPU
         shell: pwsh
         run: |
           Write-Host "=== Loading MSVC environment (x64) ==="
-          cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64 && powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" cpu openblas'
+
+          $vsdev = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat"
+
+          cmd /c "`"$vsdev`" -arch=x64 && set" | ForEach-Object {
+              if ($_ -match "^(.*?)=(.*)$") {
+                  Set-Item -Path "Env:$($matches[1])" -Value $matches[2]
+              }
+          }
+
+          ./build_windows.ps1 cpu
 
       - name: Build Windows Vulkan
         shell: pwsh
         run: |
           Write-Host "=== Loading MSVC environment (x64) ==="
-          cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64 && powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" vulkan openblas'
+
+          $vsdev = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat"
+
+          cmd /c "`"$vsdev`" -arch=x64 && set" | ForEach-Object {
+              if ($_ -match "^(.*?)=(.*)$") {
+                  Set-Item -Path "Env:$($matches[1])" -Value $matches[2]
+              }
+          }
+
+          ./build_windows.ps1 vulkan
 
       - name: Build Windows CUDA
         shell: pwsh
         run: |
           Write-Host "=== Loading MSVC environment (x64) ==="
-          cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64 && powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" cuda openblas'
+
+          $vsdev = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat"
+
+          cmd /c "`"$vsdev`" -arch=x64 && set" | ForEach-Object {
+              if ($_ -match "^(.*?)=(.*)$") {
+                  Set-Item -Path "Env:$($matches[1])" -Value $matches[2]
+              }
+          }
+
+          ./build_windows.ps1 cuda
 
       # ----------------------
       # Upload artifacts
