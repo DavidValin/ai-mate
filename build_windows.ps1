@@ -48,7 +48,6 @@ $env:CARGO_BUILD_JOBS = 1
 # ==========================================================
 # DETERMINE VARIANT
 # ==========================================================
-
 switch ($VARIANT) {
     "cpu" {
         $WITH_OPENBLAS = $true
@@ -87,8 +86,9 @@ foreach ($dir in $TARGET_DIR, $DIST_DIR, $VENDOR_DIR) {
 
 # ==========================================================
 # ENSURE CUDA TOOLKIT IF REQUIRED (BUILD-TIME)
+# FIXED BOOLEAN CHECK
 # ==========================================================
-if ($WITH_CUDA -eq 1) {
+if ($WITH_CUDA) {
     $nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
     if (-not $nvcc) {
         Write-Host "CUDA not detected. Installing CUDA Toolkit for build..."
@@ -128,6 +128,11 @@ if ($WITH_CUDA -eq 1) {
         Write-Host "CUDA_PATH = $env:CUDA_PATH"
     }
 }
+else {
+    # IMPORTANT: Prevent ONNX from detecting CUDA accidentally
+    Remove-Item Env:CUDAToolkit_ROOT -ErrorAction SilentlyContinue
+    Remove-Item Env:CUDA_PATH -ErrorAction SilentlyContinue
+}
 
 # ==========================================================
 # BUILD eSpeak NG (STATIC LIB, DYNAMIC CRT /MD)
@@ -164,7 +169,7 @@ if ($WITH_OPENBLAS) {
     Write-Host "=== Windows build [OpenBLAS] variant ==="
 
     $PREBUILT_OPENBLAS_DIR = Join-Path $PROJECT_ROOT "assets\openblas-windows-portable"
-    $OPENBLAS_LIB           = Join-Path $PREBUILT_OPENBLAS_DIR "lib\libopenblas.lib"
+    $OPENBLAS_LIB = Join-Path $PREBUILT_OPENBLAS_DIR "lib\libopenblas.lib"
 
     foreach ($dir in @("$PREBUILT_OPENBLAS_DIR\lib","$PREBUILT_OPENBLAS_DIR\include")) {
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
@@ -192,7 +197,7 @@ if ($WITH_OPENBLAS) {
         Remove-Item -Recurse -Force $tmp_build
     }
 
-    $env:OpenBLAS_DIR      = $PREBUILT_OPENBLAS_DIR
+    $env:OpenBLAS_DIR = $PREBUILT_OPENBLAS_DIR
     $env:OpenBLAS_LIBRARIES = $OPENBLAS_LIB
     $env:OpenBLAS_INCLUDE_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "include"
 }
@@ -201,10 +206,13 @@ if ($WITH_OPENBLAS) {
 # BUILD ONNX RUNTIME
 # ==========================================================
 if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
+
     Write-Host "=== Building ONNX Runtime ==="
+
     if (-not (Test-Path $ONNX_SRC)) {
         git clone --recursive https://github.com/microsoft/onnxruntime $ONNX_SRC
     }
+
     Push-Location $ONNX_SRC
     git submodule update --init --recursive --force
     Pop-Location
@@ -260,9 +268,6 @@ if (-not (Test-Path $SRC_BIN)) {
 Copy-Item -Force $SRC_BIN $DST_BIN
 Write-Host "Built $DST_BIN"
 
-# ==========================================================
-# UPLOAD ARTIFACT
-# ==========================================================
 if ($UPLOAD_ENABLED) {
     Write-Host "Uploading artifact for $VARIANT..."
     gh run upload-artifact "$BIN_BASE-$VARIANT" $DST_BIN
