@@ -51,21 +51,20 @@ jobs:
         run: |
           REM Load MSVC environment
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          REM Run the PowerShell build script
-          powershell -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" cpu openblas
+          REM Run PowerShell build script in a proper PowerShell process
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" cpu openblas
 
       - name: Build Windows Vulkan
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          powershell -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" vulkan openblas
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" vulkan openblas
 
       - name: Build Windows CUDA
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          powershell -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" cuda openblas
-
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\build_windows.ps1" cuda openblas
       # ----------------------
       # Upload artifacts
       - name: Upload CPU Artifact
