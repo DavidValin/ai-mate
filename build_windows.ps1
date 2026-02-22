@@ -201,12 +201,28 @@ if ($WITH_OPENBLAS) {
 
     # Ensure OpenBLAS library has the correct name for FindBLAS
     $LIB_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "lib"
-    $OLD_LIB = Join-Path $LIB_DIR "libopenblas.lib"
-    $NEW_LIB = Join-Path $LIB_DIR "openblas.lib"
+    $POSSIBLE_LIBS = @("libopenblas.lib", "openblas.lib")
 
-    if ((Test-Path $OLD_LIB) -and (-not (Test-Path $NEW_LIB))) {
-        Write-Host "Renaming libopenblas.lib → openblas.lib for CMake"
-        Copy-Item $OLD_LIB $NEW_LIB -Force
+    $OPENBLAS_LIB = $null
+    foreach ($lib in $POSSIBLE_LIBS) {
+        $libPath = Join-Path $LIB_DIR $lib
+        if (Test-Path $libPath) {
+            $OPENBLAS_LIB = $libPath
+            break
+        }
+    }
+
+    if (-not $OPENBLAS_LIB) {
+        Write-Error "OpenBLAS library not found in $LIB_DIR. Please ensure libopenblas.lib or openblas.lib exists."
+        exit 1
+    }
+
+    # Ensure name is openblas.lib for CMake
+    $FINAL_LIB = Join-Path $LIB_DIR "openblas.lib"
+    if ($OPENBLAS_LIB -ne $FINAL_LIB) {
+        Copy-Item $OPENBLAS_LIB $FINAL_LIB -Force
+        $OPENBLAS_LIB = $FINAL_LIB
+        Write-Host "Copied $OPENBLAS_LIB → $FINAL_LIB"
     }
 
     # Update the variable so CMAKE_ARGS points to the renamed file
@@ -251,7 +267,7 @@ $env:BLAS_INCLUDE_DIRS       = Join-Path $PREBUILT_OPENBLAS_DIR "include"
 $env:BLAS_LIBRARIES          = $OPENBLAS_LIB
 $env:GGML_BLAS               = "ON"
 $env:GGML_BLAS_VENDOR        = "OpenBLAS"
-$env:CMAKE_ARGS              = "-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS -DBLAS_INCLUDE_DIRS=`"$PREBUILT_OPENBLAS_DIR\include`" -DBLAS_LIBRARIES=`"$OPENBLAS_LIB`""
+$env:CMAKE_ARGS              = "-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS -DBLAS_INCLUDE_DIRS=$PREBUILT_OPENBLAS_DIR/include -DBLAS_LIBRARIES=$OPENBLAS_LIB -DCMAKE_PREFIX_PATH=$PREBUILT_OPENBLAS_DIR"
 
 # Set ORT crate feature flags
 if ($WITH_CUDA)    { $env:ORT_USE_CUDA = "1" } else { Remove-Item Env:ORT_USE_CUDA -ErrorAction SilentlyContinue }
