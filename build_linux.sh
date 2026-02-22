@@ -9,7 +9,7 @@ ASSETS_DIR="${PROJECT_ROOT}/assets"
 ESPEAK_ARCHIVE="${ASSETS_DIR}/espeak-ng-data.tar.gz"
 
 DO_PACKAGE=1
-DOCKER_NO_CACHE=1
+DOCKER_NO_CACHE=0
 SEL_ARCH="all"   # amd64,arm64,all
 
 # Linux variant toggles
@@ -150,7 +150,7 @@ ensure_espeak_data_archive() {
   local tmp img df
   tmp="$(mktemp -d)"
   df="${tmp}/Dockerfile.espeak.asset"
-  img="local/${BIN_NAME}-espeak-asset:${VERSION}-$$"
+  img="local/${BIN_NAME}-espeak-asset:${VERSION}"
   cat > "$df" <<'DOCKERFILE'
 FROM ubuntu:noble
 ENV DEBIAN_FRONTEND=noninteractive
@@ -275,7 +275,7 @@ build_linux_amd64_docker_variants() {
   local tmp df img CACHE_BUST
   tmp="$(mktemp -d)"
   df="${tmp}/Dockerfile.linux.amd64"
-  img="local/${BIN_NAME}-linux-amd64:${VERSION}-$$"
+  img="local/${BIN_NAME}-linux-amd64:${VERSION}"
   CACHE_BUST="$(date +%s)"
 
   cat > "$df" <<'DOCKERFILE'
@@ -283,18 +283,34 @@ FROM ubuntu:noble
 ENV DEBIAN_FRONTEND=noninteractive
 ARG CACHE_BUST
 
-# -----------------------------
-# System deps + Vulkan + BLAS (remove old libs)
-# -----------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git xz-utils \
-    build-essential pkg-config cmake ninja-build \
-    clang libclang-dev llvm-dev perl \
-    libssl-dev libasound2-dev libxdo-dev libx11-dev \
-    libblas-dev libopenblas-dev gfortran \
-    libvulkan-dev vulkan-tools vulkan-utility-libraries-dev \
-    spirv-tools glslang-tools \
- && rm -rf /var/lib/apt/lists/*
+  build-essential pkg-config libssl-dev musl-tools gcc-multilib g++-multilib gcc-x86-64-linux-gnu g++-x86-64-linux-gnu \
+  curl wget ca-certificates git \
+  clang-20 llvm-20-dev libclang-20-dev \
+  gfortran-multilib \
+  zlib1g-dev libbz2-dev liblzma-dev \
+  cmake \
+  libasound2-dev \
+
+&& rm -rf /var/lib/apt/lists/*
+
+# Make sure espeak-rs-sys find clib
+ENV LIBCLANG_PATH=/usr/lib/llvm-20/lib
+ENV LD_LIBRARY_PATH=/usr/lib/llvm-20/lib
+
+# Install Rust and add MUSL target
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PKG_CONFIG_ALLOW_CROSS=1
+ENV PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup update stable
+RUN rustup target add x86_64-unknown-linux-musl
+
+# Optional: tell cc-rs where the MUSL compiler is
+ENV CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc
+ENV CXX=/usr/bin/x86_64-linux-musl-g++
+ENV CC=/usr/bin/x86_64-linux-musl-gcc
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc
 
 # Install glslc
 RUN set -eux; \
@@ -320,11 +336,24 @@ RUN if [ "$WITH_ROCM" = "1" ]; then \
 # -----------------------------
 # Build static OpenBLAS (amd64)
 # -----------------------------
-RUN git clone --depth 1 https://github.com/xianyi/OpenBLAS.git /tmp/openblas && \
-    make -C /tmp/openblas -j$(nproc) NO_SHARED=1 USE_OPENMP=1 DYNAMIC_ARCH=1 TARGET=GENERIC && \
-    cp /tmp/openblas/libopenblas.a /usr/local/lib/libopenblas.a && \
-    cp -a /tmp/openblas/include/* /usr/local/include/ && \
-    rm -rf /tmp/openblas
+RUN git clone --depth 1 https://github.com/xianyi/OpenBLAS.git /tmp/openblas
+
+# Build OpenBLAS
+RUN cd /tmp/openblas && \
+    set -eux; \
+    make -j$(nproc) \
+        STATIC_ONLY=1 \
+        USE_OPENMP=1 \
+        USE_THREAD=1 \
+        TARGET=GENERIC \
+        NO_AVX=1 \
+        VERBOSE=1 \
+        2>&1 | tee /tmp/openblas_build.log
+
+# Install OpenBLAS
+RUN cd /tmp/openblas && \
+    make install PREFIX=/usr/local STATIC_ONLY=1 && \
+    cd / && rm -rf /tmp/openblas
 
 # Rust + musl target for static linking
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
@@ -375,15 +404,72 @@ DOCKERFILE
         export BLAS_INCLUDE_DIRS=/usr/local/include
         export BLAS_LIBRARIES=/usr/local/lib/libopenblas.a
 
-        export RUSTFLAGS="-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/local/lib/libopenblas.a"
+        export RUSTFLAGS="-C target-feature=+crt-static -C target-cpu=native -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/local/lib/libopenblas.a"
         export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
         export CARGO_PROFILE_RELEASE_DEBUG=false
         export CARGO_PROFILE_RELEASE_STRIP=symbols
         export CARGO_PROFILE_RELEASE_INCREMENTAL=false
 
         export ESPEAK_NG_DIR="/work/deps/espeak-ng-install"
+        
+        # -----------------------------
+        # Build ONNX Runtime for this variant (AMD64 musl)
+        # -----------------------------
+        ONNX_DIR=/work/deps/onnxruntime
+        mkdir -p "$ONNX_DIR"
+        git clone --depth 1 https://github.com/microsoft/onnxruntime.git /tmp/onnxruntime
+        cd /tmp/onnxruntime
+        mkdir -p build && cd build
 
-        GGML_CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS -DOPENBLAS_STATIC=ON -DBLAS_LIBRARIES=/usr/local/lib/libopenblas.a -DBLAS_INCLUDE_DIRS=/usr/local/include -DCMAKE_PREFIX_PATH=/usr/include:/usr/lib/x86_64-linux-gnu" \
+        # Determine variant-specific flags
+        USE_CUDA=OFF
+        USE_ROCM=OFF
+        USE_VULKAN=OFF
+        USE_BLAS=ON
+
+        case "$variant" in
+            cpu)    USE_BLAS=ON ;;
+            cuda)   USE_CUDA=ON; USE_BLAS=ON ;;
+            rocm)   USE_ROCM=ON; USE_BLAS=ON ;;
+            vulkan) USE_VULKAN=ON; USE_BLAS=ON ;;
+        esac
+
+        # Configure musl static build
+        cmake .. \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -D CMAKE_INSTALL_PREFIX="$ONNX_DIR" \
+            -D USE_SHARED_LIBS=OFF \
+            -D BUILD_SHARED_LIBS=OFF \
+            -D USE_OPENMP=ON \
+            -D USE_MKL=OFF \
+            -D USE_CUDA=${USE_CUDA} \
+            -D USE_ROCM=${USE_ROCM} \
+            -D USE_VULKAN=${USE_VULKAN} \
+            -D USE_TENSORRT=OFF \
+            -D USE_EIGEN=ON \
+            -D USE_BLAS=${USE_BLAS} \
+            -D CMAKE_C_COMPILER=/usr/bin/x86_64-linux-musl-gcc \
+            -D CMAKE_CXX_COMPILER=/usr/bin/x86_64-linux-musl-g++ \
+            -D BLAS_LIBRARIES=/usr/local/lib/libopenblas.a \
+            -D BLAS_INCLUDE_DIRS=/usr/local/include \
+            -D OPENSSL_ROOT_DIR=/usr/local/musl-openssl \
+            -D ONNX_CUSTOM_PROTOC_EXECUTABLE=/usr/local/bin/protoc
+
+        # Build and install
+        make -j"$(nproc)"
+        make install
+
+        # Export for Rust build
+        export ORT_DIR="$ONNX_DIR"
+
+        GGML_CMAKE_ARGS="-DGGML_BLAS=ON \
+          -DGGML_BLAS_VENDOR=OpenBLAS \
+          -DOPENBLAS_STATIC=ON \
+          -DBLAS_LIBRARIES=/usr/local/lib/libopenblas.a \
+          -DBLAS_INCLUDE_DIRS=/usr/local/include \
+          -DCMAKE_PREFIX_PATH=/usr/include:/usr/lib/x86_64-linux-gnu" \
+
         CARGO_TARGET_DIR="$ctd" \
         cargo build --release --target "$target" --features "$feats"
       }
@@ -425,7 +511,7 @@ build_linux_arm64_docker_variants() {
   local tmp df img CACHE_BUST
   tmp="$(mktemp -d)"
   df="${tmp}/Dockerfile.linux.arm64"
-  img="local/${BIN_NAME}-linux-arm64:${VERSION}-$$"
+  img="local/${BIN_NAME}-linux-arm64:${VERSION}"
   CACHE_BUST="$(date +%s)"
 
   cat > "$df" <<'DOCKERFILE'
@@ -433,16 +519,46 @@ FROM ubuntu:noble
 ENV DEBIAN_FRONTEND=noninteractive
 ARG CACHE_BUST
 
-# System deps + Vulkan + BLAS
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git xz-utils \
-    build-essential pkg-config cmake ninja-build \
-    clang libclang-dev llvm-dev perl \
-    libssl-dev libasound2-dev libxdo-dev libx11-dev \
-    libblas-dev libopenblas-dev gfortran \
-    libvulkan-dev vulkan-tools vulkan-utility-libraries-dev \
-    spirv-tools glslang-tools \
+# System deps + Vulkan
+ RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    libssl-dev:arm64 \
+    musl-dev \
+    musl-tools \
+    gcc-aarch64-linux-gnu \
+    g++-aarch64-linux-gnu \
+    curl \
+    wget \
+    ca-certificates \
+    git \
+    clang-20 \
+    llvm-20-dev \
+    libclang-20-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    liblzma-dev \
+    cmake \
+    libasound2-dev \
  && rm -rf /var/lib/apt/lists/*
+
+# Make espeak-ng find clib
+ENV LIBCLANG_PATH=/usr/lib/llvm-20/lib
+ENV LD_LIBRARY_PATH=/usr/lib/llvm-20/lib
+
+# Install Rust and add MUSL target
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PKG_CONFIG_ALLOW_CROSS=1
+ENV PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup update stable
+RUN rustup target add aarch64-unknown-linux-musl
+
+# Optional: tell cc-rs where the MUSL compiler is
+ENV CC_aarch64_unknown_linux_musl=/usr/bin/aarch64-linux-musl-gcc
+ENV CXX=/usr/bin/aarch64-linux-musl-g++
+ENV CC=/usr/bin/aarch64-linux-musl-gcc
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/usr/bin/aarch64-linux-musl-gcc
 
 # Install glslc
 RUN set -eux; \
@@ -451,14 +567,28 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     (command -v glslc >/dev/null 2>&1 && echo "glslc installed") || echo "glslc not available"
 
+
 # -----------------------------
 # Build static OpenBLAS (arm64)
 # -----------------------------
-RUN git clone --depth 1 https://github.com/xianyi/OpenBLAS.git /tmp/openblas && \
-    make -C /tmp/openblas -j$(nproc) NO_SHARED=1 USE_OPENMP=1 DYNAMIC_ARCH=1 TARGET=ARMV8 && \
-    cp /tmp/openblas/libopenblas.a /usr/local/lib/libopenblas.a && \
-    cp -a /tmp/openblas/include/* /usr/local/include/ && \
-    rm -rf /tmp/openblas
+RUN git clone --depth 1 https://github.com/xianyi/OpenBLAS.git /tmp/openblas
+
+# Build OpenBLAS
+RUN cd /tmp/openblas && \
+    set -eux; \
+    make -j$(nproc) \
+        STATIC_ONLY=1 \
+        USE_OPENMP=1 \
+        USE_THREAD=1 \
+        TARGET=ARMV8 \
+        VERBOSE=1 \
+        2>&1 | tee /tmp/openblas_build.log
+
+# Install OpenBLAS
+RUN cd /tmp/openblas && \
+    make install PREFIX=/usr/local STATIC_ONLY=1 && \
+    cd / && rm -rf /tmp/openblas
+
 
 # Rust + musl target
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
@@ -504,7 +634,7 @@ DOCKERFILE
         export BLAS_INCLUDE_DIRS=/usr/local/include
         export BLAS_LIBRARIES=/usr/local/lib/libopenblas.a
 
-        export RUSTFLAGS="-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/local/lib/libopenblas.a"
+        export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-static -C target-cpu=native -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/local/lib/libopenblas.a"
         export CARGO_PROFILE_RELEASE_LTO=false
         export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
         export CARGO_PROFILE_RELEASE_DEBUG=false
@@ -512,8 +642,64 @@ DOCKERFILE
         export CARGO_PROFILE_RELEASE_INCREMENTAL=false
 
         export ESPEAK_NG_DIR="/work/deps/espeak-ng-install"
+        
+        # -----------------------------
+        # Build ONNX Runtime for this variant (ARM64 musl)
+        # -----------------------------
+        ONNX_DIR=/work/deps/onnxruntime
+        mkdir -p "$ONNX_DIR"
+        git clone --depth 1 https://github.com/microsoft/onnxruntime.git /tmp/onnxruntime
+        cd /tmp/onnxruntime
+        mkdir -p build && cd build
 
-        GGML_CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS -DOPENBLAS_STATIC=ON -DBLAS_LIBRARIES=/usr/local/lib/libopenblas.a -DBLAS_INCLUDE_DIRS=/usr/local/include -DCMAKE_PREFIX_PATH=/usr/include:/usr/lib/aarch64-linux-gnu" \
+        # Determine variant-specific flags
+        USE_CUDA=OFF
+        USE_ROCM=OFF
+        USE_VULKAN=OFF
+        USE_BLAS=ON
+
+        case "$variant" in
+            cpu)    USE_BLAS=ON ;;
+            cuda)   USE_CUDA=ON; USE_BLAS=ON ;;
+            rocm)   USE_ROCM=ON; USE_BLAS=ON ;;
+            vulkan) USE_VULKAN=ON; USE_BLAS=ON ;;
+        esac
+
+        # Configure musl static build
+        cmake .. \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -D CMAKE_INSTALL_PREFIX="$ONNX_DIR" \
+            -D USE_SHARED_LIBS=OFF \
+            -D BUILD_SHARED_LIBS=OFF \
+            -D USE_OPENMP=ON \
+            -D USE_MKL=OFF \
+            -D USE_CUDA=${USE_CUDA} \
+            -D USE_ROCM=${USE_ROCM} \
+            -D USE_VULKAN=${USE_VULKAN} \
+            -D USE_TENSORRT=OFF \
+            -D USE_EIGEN=ON \
+            -D USE_BLAS=${USE_BLAS} \
+            -D CMAKE_C_COMPILER=/usr/bin/aarch64-linux-musl-gcc \
+            -D CMAKE_CXX_COMPILER=/usr/bin/aarch64-linux-musl-g++ \
+            -D BLAS_LIBRARIES=/usr/local/lib/libopenblas.a \
+            -D BLAS_INCLUDE_DIRS=/usr/local/include \
+            -D OPENSSL_ROOT_DIR=/usr/local/musl-openssl \
+            -D ONNX_CUSTOM_PROTOC_EXECUTABLE=/usr/local/bin/protoc
+
+        # Build and install
+        make -j"$(nproc)"
+        make install
+
+        # Export for Rust build
+        export ORT_DIR="$ONNX_DIR"
+
+        GGML_CMAKE_ARGS="-DGGML_BLAS=ON \
+          -DGGML_BLAS_VENDOR=OpenBLAS \
+          -DOPENBLAS_STATIC=ON \
+          -DBLAS_LIBRARIES=/usr/local/lib/libopenblas.a \
+          -DBLAS_INCLUDE_DIRS=/usr/local/include \
+          -DCMAKE_PREFIX_PATH=/usr/include:/usr/lib/aarch64-linux-gnu" \
         CARGO_TARGET_DIR="$ctd" \
         cargo build --release --target "$target" --features "$feats"
       }
