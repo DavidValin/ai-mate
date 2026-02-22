@@ -197,12 +197,17 @@ if ($WITH_OPENBLAS) {
     Write-Host "=== Windows build [OpenBLAS] variant ==="
 
     $PREBUILT_OPENBLAS_DIR = Join-Path $PROJECT_ROOT "assets\openblas-windows-portable"
-    $OPENBLAS_LIB = Join-Path $PREBUILT_OPENBLAS_DIR "lib\libopenblas.lib"
-
-    # Ensure OpenBLAS library has the correct name for FindBLAS
     $LIB_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "lib"
-    $POSSIBLE_LIBS = @("libopenblas.lib", "openblas.lib")
+    $INCLUDE_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "include"
+    $FINAL_LIB = Join-Path $LIB_DIR "openblas.lib"
 
+    # Ensure directories exist
+    foreach ($dir in @($LIB_DIR, $INCLUDE_DIR)) {
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    }
+
+    # Check for existing library
+    $POSSIBLE_LIBS = @("libopenblas.lib", "openblas.lib")
     $OPENBLAS_LIB = $null
     foreach ($lib in $POSSIBLE_LIBS) {
         $libPath = Join-Path $LIB_DIR $lib
@@ -212,35 +217,27 @@ if ($WITH_OPENBLAS) {
         }
     }
 
-    if (-not $OPENBLAS_LIB) {
-        Write-Error "OpenBLAS library not found in $LIB_DIR. Please ensure libopenblas.lib or openblas.lib exists."
-        exit 1
-    }
-
-    # Ensure name is openblas.lib for CMake
-    $FINAL_LIB = Join-Path $LIB_DIR "openblas.lib"
-    if ($OPENBLAS_LIB -ne $FINAL_LIB) {
+    # If a prebuilt library exists, rename to openblas.lib
+    if ($OPENBLAS_LIB -and $OPENBLAS_LIB -ne $FINAL_LIB) {
         Copy-Item $OPENBLAS_LIB $FINAL_LIB -Force
         $OPENBLAS_LIB = $FINAL_LIB
-        Write-Host "Copied $OPENBLAS_LIB → $FINAL_LIB"
+        Write-Host "Copied existing OpenBLAS lib to $FINAL_LIB"
     }
 
-    # Update the variable so CMAKE_ARGS points to the renamed file
-    $OPENBLAS_LIB = $FINAL_LIB
+    # If library is still missing, build OpenBLAS
+    if (-not (Test-Path $FINAL_LIB)) {
+        Write-Host "OpenBLAS library not found — building from source..."
 
-    foreach ($dir in @("$PREBUILT_OPENBLAS_DIR\lib","$PREBUILT_OPENBLAS_DIR\include")) {
-        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    }
-
-    if (-not (Test-Path $OPENBLAS_LIB)) {
         $tmp_build = Join-Path $env:TEMP "openblas_build"
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp_build
         New-Item -ItemType Directory -Force -Path $tmp_build | Out-Null
 
-        git clone --depth 1 --branch v0.3.30 https://github.com/xianyi/OpenBLAS (Join-Path $tmp_build "OpenBLAS")
-        New-Item -ItemType Directory -Force -Path (Join-Path $tmp_build "OpenBLAS\build") | Out-Null
+        $src_dir = Join-Path $tmp_build "OpenBLAS"
+        git clone --depth 1 --branch v0.3.30 https://github.com/xianyi/OpenBLAS $src_dir
+        $build_dir = Join-Path $src_dir "build"
+        New-Item -ItemType Directory -Force -Path $build_dir | Out-Null
 
-        Push-Location (Join-Path $tmp_build "OpenBLAS")
+        Push-Location $src_dir
         cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
           -DBUILD_SHARED_LIBS=OFF `
           -DNO_LAPACK=ON `
@@ -251,11 +248,16 @@ if ($WITH_OPENBLAS) {
         Pop-Location
 
         Remove-Item -Recurse -Force $tmp_build
+        Write-Host "OpenBLAS build completed"
     }
 
+    # Ensure the variable points to the final library
+    $OPENBLAS_LIB = $FINAL_LIB
+
+    # Set environment variables
     $env:OpenBLAS_DIR = $PREBUILT_OPENBLAS_DIR
     $env:OpenBLAS_LIBRARIES = $OPENBLAS_LIB
-    $env:OpenBLAS_INCLUDE_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "include"
+    $env:OpenBLAS_INCLUDE_DIR = $INCLUDE_DIR
 }
 
 # ==========================================================
