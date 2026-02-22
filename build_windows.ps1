@@ -136,58 +136,69 @@ else {
 }
 
 # ==========================================================
-# BUILD ONNX RUNTIME (Single Block, No Duplicates)
+# BUILD OPENBLAS STATIC AND LINK
 # ==========================================================
-if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
+if ($WITH_OPENBLAS) {
+    Write-Host "=== Windows build [OpenBLAS] variant ==="
+    $PREBUILT_OPENBLAS_DIR = Join-Path $PROJECT_ROOT "assets\openblas-windows-portable"
+    $LIB_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "lib"
+    $INCLUDE_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "include"
+    $FINAL_LIB = Join-Path $LIB_DIR "openblas.lib"
 
-    Write-Host "=== Building ONNX Runtime ==="
+    # Ensure directories exist
+    foreach ($dir in @($LIB_DIR, $INCLUDE_DIR)) {
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+          # Check for existing library
+          $POSSIBLE_LIBS = @("libopenblas.lib", "openblas.lib")
+          $OPENBLAS_LIB = $null
+          foreach ($lib in $POSSIBLE_LIBS) {
+              $libPath = Join-Path $LIB_DIR $lib
+              if (Test-Path $libPath) {
+                  $OPENBLAS_LIB = $libPath
+                  break
+              }
+          }
+          # If a prebuilt library exists, rename to openblas.lib
+          if ($OPENBLAS_LIB -and $OPENBLAS_LIB -ne $FINAL_LIB) {
+              Copy-Item $OPENBLAS_LIB $FINAL_LIB -Force
+              $OPENBLAS_LIB = $FINAL_LIB
+              Write-Host "Copied existing OpenBLAS lib to $FINAL_LIB"
+              # If library is still missing, build OpenBLAS
+              if (-not (Test-Path $FINAL_LIB)) {
+                  Write-Host "OpenBLAS library not found — building from source..."
 
-    if (-not (Test-Path (Join-Path $ONNX_SRC "CMakeLists.txt"))) {
-        git clone --recursive https://github.com/microsoft/onnxruntime $ONNX_SRC
+                  $tmp_build = Join-Path $env:TEMP "openblas_build"
+                  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp_build
+                  New-Item -ItemType Directory -Force -Path $tmp_build | Out-Null
+
+                  $src_dir = Join-Path $tmp_build "OpenBLAS"
+                  git clone --depth 1 --branch v0.3.30 https://github.com/xianyi/OpenBLAS $src_dir
+                  $build_dir = Join-Path $src_dir "build"
+                  New-Item -ItemType Directory -Force -Path $build_dir | Out-Null
+
+                  Push-Location $src_dir
+                  cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+                    -DBUILD_SHARED_LIBS=OFF `
+                    -DNO_LAPACK=ON `
+                    -DUSE_OPENMP=ON `
+                    -DCMAKE_INSTALL_PREFIX="$PREBUILT_OPENBLAS_DIR"
+
+                  cmake --build build --config Release --target INSTALL
+                  Pop-Location
+
+                  Remove-Item -Recurse -Force $tmp_build
+                  Write-Host "OpenBLAS build completed"
+              }
+          }
     }
 
-    Push-Location $ONNX_SRC
-    git submodule update --init --recursive --force
-    Pop-Location
+    # Ensure the variable points to the final library
+    $OPENBLAS_LIB = $FINAL_LIB
 
-    # -----------------------------
-    # Set ONNX flags depending on variant
-    # -----------------------------
-    switch ($VARIANT) {
-        "cpu" {
-            $ONNX_CUDA_FLAG   = "OFF"
-            $ONNX_VULKAN_FLAG = "OFF"
-            $ONNX_USE_BLAS    = "ON"
-        }
-        "vulkan" {
-            $ONNX_CUDA_FLAG   = "OFF"
-            $ONNX_VULKAN_FLAG = "ON"
-            $ONNX_USE_BLAS    = "ON"
-        }
-        "cuda" {
-            $ONNX_CUDA_FLAG   = "ON"
-            $ONNX_VULKAN_FLAG = "OFF"
-            $ONNX_USE_BLAS    = "ON"
-        }
-    }
-
-    cmake -S $ONNX_SRC -B $ONNX_BUILD -G "Visual Studio 17 2022" -A x64 `
-        -DCMAKE_BUILD_TYPE=Release `
-        -DBUILD_SHARED_LIBS=OFF `
-        -Donnxruntime_BUILD_SHARED_LIB=OFF `
-        -Donnxruntime_MSVC_STATIC_RUNTIME=ON `
-        -Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG `
-        -Donnxruntime_USE_VULKAN=$ONNX_VULKAN_FLAG `
-        -Donnxruntime_USE_EIGEN=ON `
-        -Donnxruntime_USE_OPENMP=ON `
-        -Donnxruntime_USE_BLAS=$ONNX_USE_BLAS `
-        -Donnxruntime_BUILD_UNIT_TESTS=OFF `
-        -Donnxruntime_BUILD_TESTS=OFF `
-        -Donnxruntime_ENABLE_TESTING=OFF `
-        -DBUILD_TESTING=OFF `
-        -DCUDAToolkit_ROOT=$env:CUDAToolkit_ROOT
-
-    cmake --build $ONNX_BUILD --config Release
+    # Set environment variables
+    $env:OpenBLAS_DIR = $PREBUILT_OPENBLAS_DIR
+    $env:OpenBLAS_LIBRARIES = $OPENBLAS_LIB
+    $env:OpenBLAS_INCLUDE_DIR = $INCLUDE_DIR
 }
 
 # ==========================================================
@@ -263,7 +274,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
 # ==========================================================
 $env:ONNXRUNTIME_INCLUDE_DIR = Join-Path $ONNX_SRC "include"
 $env:ONNXRUNTIME_LIB_DIR     = Join-Path $ONNX_BUILD "Release"
-$env:BLAS_INCLUDE_DIRS       = Join-Path $ONNX_BUILD "include"
+$env:BLAS_INCLUDE_DIRS       = Join-Path $PREBUILT_OPENBLAS_DIR "include"
 $env:BLAS_LIBRARIES          = $OPENBLAS_LIB
 $env:GGML_BLAS               = "ON"
 $env:GGML_BLAS_VENDOR        = "OpenBLAS"
@@ -288,7 +299,7 @@ if ($WITH_OPENBLAS) { $CARGO_FEATURES += "whisper-openblas" }
 if ($WITH_VULKAN)   { $CARGO_FEATURES += "whisper-vulkan" }
 if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 
-$env:RUSTFLAGS = "-C codegen-units=1 -C opt-level=3 -C link-arg=-L$ONNX_BUILD\lib -C link-arg=-lopenblas"
+$env:RUSTFLAGS = "-C codegen-units=1 -C opt-level=3 -C link-arg=-L$PREBUILT_OPENBLAS_DIR\lib -C link-arg=-L$ONNX_BUILD\lib -C link-arg=-lopenblas"
 
 Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET

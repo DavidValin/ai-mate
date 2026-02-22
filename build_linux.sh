@@ -344,6 +344,7 @@ RUN cd /tmp/openblas && \
     set -eux; \
     make -j$(nproc) \
         STATIC_ONLY=1 \
+        NO_SHARED=1 \
         USE_OPENMP=1 \
         USE_THREAD=1 \
         TARGET=GENERIC \
@@ -353,7 +354,7 @@ RUN cd /tmp/openblas && \
 
 # Install OpenBLAS
 RUN cd /tmp/openblas && \
-    make install PREFIX=/usr/local STATIC_ONLY=1 && \
+    make install PREFIX=/usr/local STATIC_ONLY=1 NO_SHARED=1 && \
     cd / && rm -rf /tmp/openblas
 
 # Rust + musl target for static linking
@@ -579,6 +580,7 @@ RUN cd /tmp/openblas && \
     set -eux; \
     make -j$(nproc) \
         STATIC_ONLY=1 \
+        NO_SHARED=1 \
         USE_OPENMP=1 \
         USE_THREAD=1 \
         TARGET=ARMV8 \
@@ -587,7 +589,7 @@ RUN cd /tmp/openblas && \
 
 # Install OpenBLAS
 RUN cd /tmp/openblas && \
-    make install PREFIX=/usr/local STATIC_ONLY=1 && \
+    make install PREFIX=/usr/local STATIC_ONLY=1 NO_SHARED=1 && \
     cd / && rm -rf /tmp/openblas
 
 
