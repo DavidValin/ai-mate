@@ -199,6 +199,19 @@ if ($WITH_OPENBLAS) {
     $PREBUILT_OPENBLAS_DIR = Join-Path $PROJECT_ROOT "assets\openblas-windows-portable"
     $OPENBLAS_LIB = Join-Path $PREBUILT_OPENBLAS_DIR "lib\libopenblas.lib"
 
+    # Ensure OpenBLAS library has the correct name for FindBLAS
+    $LIB_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "lib"
+    $OLD_LIB = Join-Path $LIB_DIR "libopenblas.lib"
+    $NEW_LIB = Join-Path $LIB_DIR "openblas.lib"
+
+    if (Test-Path $OLD_LIB -and -not (Test-Path $NEW_LIB)) {
+        Write-Host "Renaming libopenblas.lib → openblas.lib for CMake"
+        Copy-Item $OLD_LIB $NEW_LIB -Force
+    }
+
+    # Update the variable so CMAKE_ARGS points to the renamed file
+    $OPENBLAS_LIB = $NEW_LIB
+
     foreach ($dir in @("$PREBUILT_OPENBLAS_DIR\lib","$PREBUILT_OPENBLAS_DIR\include")) {
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     }
