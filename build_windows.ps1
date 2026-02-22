@@ -277,6 +277,8 @@ $env:ONNXRUNTIME_LIB_DIR     = Join-Path $ONNX_BUILD "Release"
 $env:OpenBLAS_DIR            = $PREBUILT_OPENBLAS_DIR
 $env:GGML_BLAS               = "ON"
 $env:GGML_BLAS_VENDOR        = "OpenBLAS"
+$env:BLAS_INCLUDE_DIRS       = Join-Path $PREBUILT_OPENBLAS_DIR "include"
+$env:BLAS_LIBRARIES          = $OPENBLAS_LIB
 $env:CMAKE_PREFIX_PATH       = "$PREBUILT_OPENBLAS_DIR;$ONNX_BUILD"
 $env:CMAKE_ARGS              = "-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS -DBLA_STATIC=ON"
 
@@ -299,7 +301,7 @@ if ($WITH_OPENBLAS) { $CARGO_FEATURES += "whisper-openblas" }
 if ($WITH_VULKAN)   { $CARGO_FEATURES += "whisper-vulkan" }
 if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 
-$env:RUSTFLAGS = "-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-arg=-L$PREBUILT_OPENBLAS_DIR\lib -C link-arg=-L$ONNX_BUILD\lib"
+$env:RUSTFLAGS = "-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3"
 
 Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET
