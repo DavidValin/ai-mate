@@ -146,30 +146,10 @@ else {
     Remove-Item Env:CUDA_ROOT -ErrorAction SilentlyContinue
 }
 
-
-# ==========================================================
-# BUILD PROTOC STATIC
-# ==========================================================
-
-# ensure directories
-New-Item -ItemType Directory -Force -Path $PROTOC_BUILD, $PROTOC_INSTALL
-
-git clone -b v3.21.12 https://github.com/protocolbuffers/protobuf.git $PROTOC_SRC
-cd $PROTOC_BUILD
-cmake $PROTOC_SRC\cmake `
-    -G "Visual Studio 17 2022" `
-    -A x64 `
-    -DCMAKE_BUILD_TYPE=Release `
-    -DCMAKE_INSTALL_PREFIX=$PROTOC_INSTALL `
-    -Dprotobuf_BUILD_TESTS=OFF `
-    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded  # /MT static CRT
-cmake --build . --config Release --target INSTALL
-$PROTOC_BIN = "$PROTOC_INSTALL\bin\protoc.exe"
-
 # ==========================================================
 # BUILD ESPEAK-NG STATIC
 # ==========================================================
-$ESPEAK_LIB = Join-Path $ESPEAK_INSTALL "lib\espeak-ng.lib"
+$ESPEAK_LIB = Join-Path $ESPEAK_INSTALL "lib" "espeak-ng.lib"
 
 if (-not (Test-Path $ESPEAK_LIB)) {
 
@@ -254,6 +234,25 @@ if ($WITH_OPENBLAS) {
     $env:OpenBLAS_LIBRARIES = $OPENBLAS_LIB
     $env:OpenBLAS_INCLUDE_DIR = $INCLUDE_DIR
 }
+
+# ==========================================================
+# BUILD PROTOC STATIC
+# ==========================================================
+
+# ensure directories
+New-Item -ItemType Directory -Force -Path $PROTOC_BUILD, $PROTOC_INSTALL
+
+git clone -b v3.21.12 https://github.com/protocolbuffers/protobuf.git $PROTOC_SRC
+cd $PROTOC_BUILD
+cmake $PROTOC_SRC\cmake `
+    -G "Visual Studio 17 2022" `
+    -A x64 `
+    -DCMAKE_BUILD_TYPE=Release `
+    -DCMAKE_INSTALL_PREFIX="$PROTOC_INSTALL" `
+    -Dprotobuf_BUILD_TESTS=OFF `
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded  # /MT static CRT
+cmake --build . --config Release --target INSTALL
+$PROTOC_BIN = "$PROTOC_INSTALL\bin\protoc.exe"
 
 # ==========================================================
 # BUILD ONNX RUNTIME (Single Block, No Duplicates)
