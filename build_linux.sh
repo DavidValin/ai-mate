@@ -284,34 +284,41 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG CACHE_BUST
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  build-essential pkg-config libssl-dev musl-tools gcc-multilib g++-multilib gcc-x86-64-linux-gnu g++-x86-64-linux-gnu \
+  build-essential pkg-config libssl-dev musl-tools gcc-x86-64-linux-gnu g++-x86-64-linux-gnu \
   curl wget ca-certificates git \
-  clang-20 llvm-20-dev libclang-20-dev \
-  gfortran-multilib \
+  gfortran \
   zlib1g-dev libbz2-dev liblzma-dev \
   cmake \
   libasound2-dev \
-
+  protobuf-compiler libprotobuf-dev \
+  python3 python3-pip \
+  perl \
 && rm -rf /var/lib/apt/lists/*
 
+# install musl g++ linker
+RUN wget https://musl.cc/x86_64-linux-musl-cross.tgz
+RUN tar xvf x86_64-linux-musl-cross.tgz -C /opt/
+ENV PATH=/opt/x86_64-linux-musl-cross/bin:$PATH
+
 # Make sure espeak-rs-sys find clib
-ENV LIBCLANG_PATH=/usr/lib/llvm-20/lib
-ENV LD_LIBRARY_PATH=/usr/lib/llvm-20/lib
+# ENV LIBCLANG_PATH=/usr/lib/llvm-20/lib
+# ENV LD_LIBRARY_PATH=/usr/lib/llvm-20/lib
 
 # Install Rust and add MUSL target
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PKG_CONFIG_ALLOW_CROSS=1
 ENV PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN rustup update stable
 RUN rustup target add x86_64-unknown-linux-musl
+RUN rustup update stable
 
 ENV CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc
-ENV CXX=clang++
-ENV CXXFLAGS="--target=x86_64-linux-musl"
-ENV LDFLAGS="--target=x86_64-linux-musl"
-ENV CC=/usr/bin/x86_64-linux-musl-gcc
+ENV CXX_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc
+ENV CC=x86_64-linux-musl-gcc
+ENV CXX=x86_64-linux-musl-g++
+# ENV CXX=/usr/bin/clang++-20
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc
+ENV LD=x86_64-linux-musl-g++
 
 # Install glslc
 RUN set -eux; \
@@ -333,6 +340,21 @@ RUN if [ "$WITH_ROCM" = "1" ]; then \
       apt-get update && apt-get install -y --no-install-recommends rocm-hip-sdk hipblas rocblas && \
       rm -rf /var/lib/apt/lists/* ; \
     fi
+
+# -----------------------------
+# Build openssl for musl (amd64)
+# -----------------------------
+RUN curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz \
+ && tar xvf openssl-3.1.3.tar.gz \
+ && cd openssl-3.1.3 \
+ && ./Configure linux-x86_64 no-shared no-tests --prefix=/usr/local \
+ && make -j$(nproc) \
+ && make install
+
+ENV OPENSSL_DIR=/usr/local
+ENV OPENSSL_LIB_DIR=/usr/local/lib
+ENV OPENSSL_INCLUDE_DIR=/usr/local/include
+ENV OPENSSL_STATIC=1
 
 # -----------------------------
 # Build static OpenBLAS (amd64)
@@ -405,73 +427,83 @@ DOCKERFILE
         export GGML_BLAS_VENDOR=OpenBLAS
         export BLAS_INCLUDE_DIRS=/usr/local/include
         export BLAS_LIBRARIES=/usr/local/lib/libopenblas.a
-
-        export RUSTFLAGS="-C target-feature=+crt-static -C target-cpu=native -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/local/lib/libopenblas.a"
         export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
         export CARGO_PROFILE_RELEASE_DEBUG=false
         export CARGO_PROFILE_RELEASE_STRIP=symbols
         export CARGO_PROFILE_RELEASE_INCREMENTAL=false
+        export OPENSSL_DIR=/usr/local
+        export OPENSSL_LIB_DIR=/usr/local/lib
+        export OPENSSL_INCLUDE_DIR=/usr/local/include
+        export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 
         export ESPEAK_NG_DIR="/work/deps/espeak-ng-install"
-        
+
+        # -----------------------------
+        # Build protobuf musl version (AMD64 musl)
+        # -----------------------------
+        mkdir -p /tmp/protoc
+        cd /tmp/protoc
+        git clone -b v3.21.12 https://github.com/protocolbuffers/protobuf.git
+        cd protobuf
+        mkdir build && cd build
+        cmake ../cmake -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF
+        make -j$(nproc)
+        make install DESTDIR=/tmp/protoc/protobuf/install
+        # export PATH=/tmp/protoc/build:$PATH
+
         # -----------------------------
         # Build ONNX Runtime for this variant (AMD64 musl)
         # -----------------------------
-        ONNX_DIR=/work/deps/onnxruntime
+        export ONNX_DIR=/work/deps/onnxruntime
         mkdir -p "$ONNX_DIR"
         git clone --depth 1 https://github.com/microsoft/onnxruntime.git /tmp/onnxruntime
         cd /tmp/onnxruntime
+
+        # HACK: patch ocurrences of "#include <execinfo.h>" since is only used
+        # for backtrace and unsupported in musl
+        find . -type f -print0 | xargs -0 -r sed -i '/#include <execinfo\.h>/d'
+
         mkdir -p build && cd build
 
-        # Determine variant-specific flags
         USE_CUDA=OFF
-        USE_ROCM=OFF
-        USE_VULKAN=OFF
-        USE_BLAS=ON
 
         case "$variant" in
-            cpu)    USE_BLAS=ON ;;
             cuda)   USE_CUDA=ON; USE_BLAS=ON ;;
-            rocm)   USE_ROCM=ON; USE_BLAS=ON ;;
-            vulkan) USE_VULKAN=ON; USE_BLAS=ON ;;
         esac
+ 
+        
 
         # Configure musl static build
         cmake ../cmake \
+            -D CMAKE_SYSTEM_PROCESSOR=AMD64 \
+            -D CMAKE_C_FLAGS="-march=x86-64" \
+            -D CMAKE_CXX_FLAGS="-march=x86-64" \
+            -D CMAKE_C_COMPILER=$CC \
+            -D CMAKE_CXX_COMPILER=$CCX \
+            -D CMAKE_LINKER=$LD \
             -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF \
             -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
             -D CMAKE_INSTALL_PREFIX="$ONNX_DIR" \
-            -D USE_SHARED_LIBS=OFF \
-            -D BUILD_SHARED_LIBS=OFF \
-            -D USE_OPENMP=ON \
-            -D USE_MKL=OFF \
-            -D USE_CUDA=${USE_CUDA} \
-            -D USE_ROCM=${USE_ROCM} \
-            -D USE_VULKAN=${USE_VULKAN} \
-            -D USE_TENSORRT=OFF \
-            -D USE_EIGEN=ON \
-            -D USE_BLAS=${USE_BLAS} \
-            -D CMAKE_C_COMPILER=/usr/bin/x86_64-linux-musl-gcc \
-            -D CMAKE_CXX_COMPILER=/usr/bin/x86_64-linux-musl-g++ \
-            -D BLAS_LIBRARIES=/usr/local/lib/libopenblas.a \
-            -D BLAS_INCLUDE_DIRS=/usr/local/include \
-            -D OPENSSL_ROOT_DIR=/usr/local/musl-openssl \
-            -D ONNX_CUSTOM_PROTOC_EXECUTABLE=/usr/local/bin/protoc
+            -D onnxruntime_BUILD_SHARED_LIB=OFF \
+            -D onnxruntime_USE_CUDA=$USE_CUDA \
+            -D onnxruntime_BUILD_UNIT_TESTS=OFF \
+            -D onnxruntime_RUN_ONNX_TESTS=OFF \
+            -D onnxruntime_USE_XNNPACK=OFF \
+            -D ONNX_CUSTOM_PROTOC_EXECUTABLE=/usr/bin/protoc \
+            -D Protobuf_ROOT=/tmp/protoc/protobuf/install/usr/local \
+            -D onnxruntime_USE_AVX=OFF \
+            -D onnxruntime_USE_AVX2=OFF \
+            -D onnxruntime_USE_AVX512=OFF
 
         # Build and install
-        make -j"$(nproc)"
-        make install
+        make -j"$(nproc)" VERBOSE=1
+        # make install
 
-        # Export for Rust build
-        export ORT_DIR="$ONNX_DIR"
-
-        GGML_CMAKE_ARGS="-DGGML_BLAS=ON \
-          -DGGML_BLAS_VENDOR=OpenBLAS \
-          -DOPENBLAS_STATIC=ON \
-          -DBLAS_LIBRARIES=/usr/local/lib/libopenblas.a \
-          -DBLAS_INCLUDE_DIRS=/usr/local/include \
-          -DCMAKE_PREFIX_PATH=/usr/include:/usr/lib/x86_64-linux-gnu" \
-
+        # Make ort crate find the onnx musl static build
+        export ORT_STRATEGY=system
+        export ORT_LIB_LOCATION=/work/deps/onnxruntime
+        export RUSTFLAGS="-C target-feature=+crt-static -C target-cpu=native -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/local/lib/libopenblas.a"
         CARGO_TARGET_DIR="$ctd" \
         cargo build --release --target "$target" --features "$feats"
       }
@@ -643,6 +675,10 @@ DOCKERFILE
         export CARGO_PROFILE_RELEASE_DEBUG=false
         export CARGO_PROFILE_RELEASE_STRIP=symbols
         export CARGO_PROFILE_RELEASE_INCREMENTAL=false
+        export OPENSSL_DIR=/usr/local
+        export OPENSSL_LIB_DIR=/usr/local/lib
+        export OPENSSL_INCLUDE_DIR=/usr/local/include
+        export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 
         export ESPEAK_NG_DIR="/work/deps/espeak-ng-install"
         
@@ -675,9 +711,17 @@ DOCKERFILE
             -D CMAKE_INSTALL_PREFIX="$ONNX_DIR" \
             -D USE_SHARED_LIBS=OFF \
             -D BUILD_SHARED_LIBS=OFF \
-            -D USE_OPENMP=ON \
+            -D USE_OPENMP=OFF \
+            -D ORT_CPU_ENABLE_AVX=OFF \
+            -D ORT_CPU_ENABLE_AVX2=OFF \
+            -D ORT_CPU_ENABLE_AVX512=OFF \
+            -D ORT_CPU_ENABLE_FMA=OFF \
+            -D ORT_CPU_ENABLE_MF16C=OFF \
+            -D ORT_CPU_ENABLE_BFLOAT16=OFF \
+            -D ORT_CPU_ENABLE_VNNI=OFF \
+            -D ORT_CPU_ENABLE_AMX=OFF \
             -D USE_MKL=OFF \
-            -D USE_CUDA=${USE_CUDA} \
+            -D onnxruntime_USE_CUDA=${USE_CUDA} \
             -D USE_ROCM=${USE_ROCM} \
             -D USE_VULKAN=${USE_VULKAN} \
             -D USE_TENSORRT=OFF \
