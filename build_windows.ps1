@@ -329,14 +329,17 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
     # Build ONNX Runtime
     # -----------------------------
     cmake --build $ONNX_BUILD --config Release
+
+    $ORT_LIB_LOCATION = Join-Path $ONNX_BUILD "Release"
 }
+
 
 # ==========================================================
 # EXPORT ENVIRONMENT
 # ==========================================================
 $env:ONNXRUNTIME_INCLUDE_DIR = Join-Path $ONNX_SRC "include"
 $env:ORT_STRATEGY            = "system"
-$env:ORT_LIB_LOCATION        = Join-Path $ONNX_BUILD "Release"
+$env:ORT_LIB_LOCATION        = $ORT_LIB_LOCATION
 $env:ORT_PREFER_DYNAMIC_LINK = "0"
 $env:ONNXRUNTIME_LIB_DIR     = Join-Path $ONNX_BUILD "Release"
 # -----------------------------------------------------------

@@ -455,13 +455,14 @@ DOCKERFILE
         # Build ONNX Runtime for this variant (AMD64 musl)
         # -----------------------------
         export ONNX_DIR=/work/deps/onnxruntime
+        export ONNX_SRC=/tmp/onnxruntime
         mkdir -p "$ONNX_DIR"
-        git clone --depth 1 https://github.com/microsoft/onnxruntime.git /tmp/onnxruntime
-        cd /tmp/onnxruntime
+        git clone --depth 1 https://github.com/microsoft/onnxruntime.git $ONNX_SRC
+        cd $ONNX_SRC
 
-        # HACK: patch ocurrences of "#include <execinfo.h>" since is only used
+        # HACK: patch ocurrences of #include <execinfo.h> since is only used
         # for backtrace and unsupported in musl
-        find . -type f -print0 | xargs -0 -r sed -i '/#include <execinfo\.h>/d'
+        find . -type f \( -name "*" \) -print0 | xargs -0 -r sed -i "/#include <execinfo\.h>/d"
 
         mkdir -p build && cd build
 
@@ -470,8 +471,6 @@ DOCKERFILE
         case "$variant" in
             cuda)   USE_CUDA=ON; USE_BLAS=ON ;;
         esac
- 
-        
 
         # Configure musl static build
         cmake ../cmake \
@@ -479,7 +478,7 @@ DOCKERFILE
             -D CMAKE_C_FLAGS="-march=x86-64" \
             -D CMAKE_CXX_FLAGS="-march=x86-64" \
             -D CMAKE_C_COMPILER=$CC \
-            -D CMAKE_CXX_COMPILER=$CCX \
+            -D CMAKE_CXX_COMPILER=$CXX \
             -D CMAKE_LINKER=$LD \
             -D CMAKE_BUILD_TYPE=Release \
             -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF \
@@ -503,7 +502,9 @@ DOCKERFILE
         # Make ort crate find the onnx musl static build
         export ORT_STRATEGY=system
         export ORT_LIB_LOCATION=/work/deps/onnxruntime
-        export RUSTFLAGS="-C target-feature=+crt-static -C target-cpu=native -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/local/lib/libopenblas.a"
+        export RUSTFLAGS="-C target-feature=+crt-static -C target-cpu=native -C codegen-units=1 -C opt-level=3 -C link-arg=/usr/local/lib/libopenblas.a -C link-arg=-L/usr/local/lib -C link-arg=-lssl -C link-arg=-lcrypto"
+
+        cd /work
         CARGO_TARGET_DIR="$ctd" \
         cargo build --release --target "$target" --features "$feats"
       }
