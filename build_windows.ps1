@@ -337,9 +337,10 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
 # EXPORT ENVIRONMENT
 # ==========================================================
 $env:ONNXRUNTIME_INCLUDE_DIR = Join-Path $ONNX_SRC "include"
-$env:ORT_INCLUDE_DIR  = Join-Path $ONNX_SRC "include"
-# -----------------------------------------------------------
+$env:ORT_STRATEGY            = "system"
+$env:ORT_LIB_LOCATION        = Join-Path $ONNX_BUILD "Release"
 $env:ONNXRUNTIME_LIB_DIR     = Join-Path $ONNX_BUILD "Release"
+# -----------------------------------------------------------
 $env:GGML_BLAS               = "ON"
 $env:BLAS_STATIC             = "ON"
 $env:GGML_BLAS_STATIC        = "ON"
