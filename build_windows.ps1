@@ -145,6 +145,7 @@ if ($WITH_OPENBLAS) {
     $LIB_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "lib"
     $INCLUDE_DIR = Join-Path $PREBUILT_OPENBLAS_DIR "include\openblas"
     $FINAL_LIB = Join-Path $LIB_DIR "openblas.lib"
+    $RENAMED_LIB = Join-Path $LIB_DIR "libopenblas.lib"
 
     Write-Host "OpenBLAS library not found — building from source..."
 
@@ -167,11 +168,17 @@ if ($WITH_OPENBLAS) {
     cmake --build build --config Release --target INSTALL
     Pop-Location
 
+    # Rename openblas.lib to libopenblas.lib
+    if (Test-Path $FINAL_LIB) {
+        Rename-Item -Path $FINAL_LIB -NewName "libopenblas.lib" -Force
+        Write-Host "Renamed openblas.lib to libopenblas.lib"
+    }
+
     Remove-Item -Recurse -Force $tmp_build
     Write-Host "OpenBLAS build completed"
 
-    # Ensure the variable points to the final library
-    $OPENBLAS_LIB = $FINAL_LIB
+    # Ensure the variable points to the renamed library
+    $OPENBLAS_LIB = $RENAMED_LIB
 
     # Set environment variables
     $env:OpenBLAS_DIR = $PREBUILT_OPENBLAS_DIR
