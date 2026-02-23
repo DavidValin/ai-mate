@@ -299,31 +299,46 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
     # -----------------------------
     # Configure ONNX Runtime using CMake
     # -----------------------------
-    $cuda_root = $env:CUDAToolkit_ROOT
-    cmake -S "$ONNX_SRC/cmake" -B "$ONNX_BUILD" -G "Visual Studio 17 2022" -A x64 `
-        -DCMAKE_BUILD_TYPE=Release `
-        -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF `
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON `
-        -Donnxruntime_BUILD_SHARED_LIB=OFF `
-        -DDonnxruntime_USE_STATIC_LIBS=ON `
-        -Donnxruntime_MSVC_STATIC_RUNTIME=ON `
-        -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
-        -Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG `
-        -Donnxruntime_USE_EIGEN_FOR_BLAS=OFF `
-        -Donnxruntime_USE_OPENBLAS=$ONNX_USE_BLAS `
-        -Donnxruntime_OPENBLAS_INCLUDE_DIR="$INCLUDE_DIR" `
-        -Donnxruntime_OPENBLAS_LIB=$RENAMED_LIB `
-        -Donnxruntime_BUILD_UNIT_TESTS=OFF `
-        -Donnxruntime_BUILD_TESTS=OFF `
-        -Donnxruntime_ENABLE_TESTING=OFF `
-        -Donnxruntime_USE_AVX=OFF `
-        -Donnxruntime_USE_AVX2=OFF `
-        -Donnxruntime_USE_AVX512=OFF `
-        -Donnxruntime_RUN_ONNX_TESTS=OFF `
-        -DBUILD_TESTING=OFF `
-        -DONNX_CUSTOM_PROTOC_EXECUTABLE="$PROTOC_BIN" `
-        -DProtobuf_ROOT="$PROTOC_INSTALL" `
-        -DCUDAToolkit_ROOT="$cuda_root"
+    $ONNX_CMAKE_ARGS = @(
+        "-S", "$ONNX_SRC/cmake",
+        "-B", "$ONNX_BUILD",
+        "-G", "Visual Studio 17 2022",
+        "-A", "x64",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_COMPILE_WARNING_AS_ERROR=OFF",
+        "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+        "-Donnxruntime_BUILD_SHARED_LIB=OFF",
+        "-DDonnxruntime_USE_STATIC_LIBS=ON",
+        "-Donnxruntime_MSVC_STATIC_RUNTIME=ON",
+        "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
+        "-Donnxruntime_USE_EIGEN_FOR_BLAS=OFF",
+        "-Donnxruntime_USE_OPENBLAS=$ONNX_USE_BLAS",
+        "-Donnxruntime_OPENBLAS_INCLUDE_DIR=$INCLUDE_DIR",
+        "-Donnxruntime_OPENBLAS_LIB=$RENAMED_LIB",
+        "-Donnxruntime_BUILD_UNIT_TESTS=OFF",
+        "-Donnxruntime_BUILD_TESTS=OFF",
+        "-Donnxruntime_ENABLE_TESTING=OFF",
+        "-Donnxruntime_USE_AVX=OFF",
+        "-Donnxruntime_USE_AVX2=OFF",
+        "-Donnxruntime_USE_AVX512=OFF",
+        "-Donnxruntime_RUN_ONNX_TESTS=OFF",
+        "-DBUILD_TESTING=OFF",
+        "-DONNX_CUSTOM_PROTOC_EXECUTABLE=$PROTOC_BIN",
+        "-DProtobuf_ROOT=$PROTOC_INSTALL",
+        "-Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG"
+    )
+
+    # Conditionally add CUDA-specific options only if CUDA is ON
+    if ($ONNX_CUDA_FLAG -eq "ON") {
+        $cuda_root = $env:CUDAToolkit_ROOT
+        $ONNX_CMAKE_ARGS += @(
+            "-DCUDAToolkit_ROOT=$cuda_root"
+            # Add other CUDA-related flags here if needed
+        )
+    }
+
+    # Run CMake with the assembled arguments
+    cmake @ONNX_CMAKE_ARGS
 
     # -----------------------------
     # Build ONNX Runtime
