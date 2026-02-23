@@ -21,10 +21,9 @@ $ESPEAK_SRC     = Join-Path $VENDOR_DIR "espeak-ng"
 $ESPEAK_BUILD   = Join-Path $ESPEAK_SRC "build-msvc"
 $ESPEAK_INSTALL = Join-Path $ESPEAK_BUILD "install"
 
-$PROTOC_TMP     = "C:\tmp\protoc"
-$PROTOC_SRC     = Join-Path $PROTOC_TMP "protobuf"
-$PROTOC_BUILD   = Join-Path $PROTOC_TMP "protobuf\build"
-$PROTOC_INSTALL = Join-Path $PROTOC_TMP "protobuf\install"
+$PROTOC_SRC     = Join-Path $PROJECT_ROOT "protobuf"
+$PROTOC_BUILD   = Join-Path $PROJECT_ROOT "protobuf\build"
+$PROTOC_INSTALL = Join-Path $PROJECT_ROOT "protobuf\install"
 
 $OPENBLAS_DIR   = Join-Path $VENDOR_DIR "openblas"
 
@@ -158,15 +157,15 @@ New-Item -ItemType Directory -Force -Path $PROTOC_BUILD, $PROTOC_INSTALL
 git clone -b v3.21.12 https://github.com/protocolbuffers/protobuf.git $PROTOC_SRC
 cd $PROTOC_BUILD
 cmake $PROTOC_SRC\cmake `
-      -G "Visual Studio 17 2022" `
-      -A x64 `
-      -DCMAKE_BUILD_TYPE=Release `
-      -DCMAKE_INSTALL_PREFIX=$PROTOC_INSTALL `
-      -Dprotobuf_BUILD_TESTS=OFF `
-      -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded  # /MT static CRT
+    -G "Visual Studio 17 2022" `
+    -A x64 `
+    -DCMAKE_BUILD_TYPE=Release `
+    -DCMAKE_INSTALL_PREFIX=$PROTOC_INSTALL `
+    -Dprotobuf_BUILD_TESTS=OFF `
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded  # /MT static CRT
 cmake --build . --config Release --target INSTALL
 $env:PATH = "$PROTOC_INSTALL\bin;$env:PATH"
-
+$PROTOC_BIN = "$PROTOC_INSTALL\bin\protoc.exe"
 
 # ==========================================================
 # BUILD ESPEAK-NG STATIC
@@ -324,6 +323,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         -Donnxruntime_USE_AVX512=OFF `
         -Donnxruntime_RUN_ONNX_TESTS=OFF `
         -DBUILD_TESTING=OFF `
+        -DONNX_CUSTOM_PROTOC_EXECUTABLE=$PROTOC_BIN `
         -DProtobuf_ROOT=$PROTOC_INSTALL `
         -DCUDAToolkit_ROOT="$cuda_root"
 
