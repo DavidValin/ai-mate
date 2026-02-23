@@ -225,6 +225,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
     # -----------------------------
     # Configure ONNX Runtime using CMake
     # -----------------------------
+    $cuda_root = $env:CUDAToolkit_ROOT
     cmake -S "$ONNX_SRC/cmake" -B "$ONNX_BUILD" -G "Visual Studio 17 2022" -A x64 `
         -DCMAKE_BUILD_TYPE=Release `
         -Donnxruntime_BUILD_SHARED_LIB=OFF `
@@ -238,7 +239,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         -Donnxruntime_BUILD_TESTS=OFF `
         -Donnxruntime_ENABLE_TESTING=OFF `
         -DBUILD_TESTING=OFF `
-        -DCUDAToolkit_ROOT=$env:CUDAToolkit_ROOT
+        -DCUDAToolkit_ROOT="$cuda_root"
 
     # -----------------------------
     # Build ONNX Runtime
@@ -262,7 +263,7 @@ $env:BLAS_LIBRARIES          = $OPENBLAS_LIB
 $env:OPENBLAS_PATH           = $PREBUILT_OPENBLAS_DIR
 $env:OPENBLAS_DIR            = $PREBUILT_OPENBLAS_DIR
 $env:CMAKE_PREFIX_PATH       = "${PREBUILT_OPENBLAS_DIR}:${ONNX_BUILD}"
-$env:CMAKE_ARGS              = "-DGGML_BLAS=ON -DGGML_BLAS_STATIC=ON -DGGML_BLAS_VENDOR=OpenBLAS -DBLAS_VENDOR=OpenBLAS -DOPENBLAS_PATH=$PREBUILT_OPENBLAS_DIR -DBLAS_INCLUDE_DIRS=$INCLUDE_DIR -DBLAS_LIBRARIES=$OPENBLAS_LIB"
+$env:CMAKE_ARGS              = "-DGGML_BLAS=ON -DGGML_BLAS_STATIC=ON -DGGML_BLAS_VENDOR=OpenBLAS -DBLAS_VENDOR=OpenBLAS -DOPENBLAS_PATH=$PREBUILT_OPENBLAS_DIR -DBLAS_INCLUDE_DIRS=$INCLUDE_DIR -DBLAS_LIBRARIES=$OPENBLAS_LIB -DBLA_VENDOR=OpenBLAS -D BLAS_ROOT=$PREBUILT_OPENBLAS_DIR -DBLAS_DIR=$PREBUILT_OPENBLAS_DIR -D BLAS_LIBDIR=$LIB_DIR -D BLA_STATIC=ON"
 
 # Set ORT crate feature flags
 if ($WITH_CUDA)    { $env:ORT_USE_CUDA = "1" } else { Remove-Item Env:ORT_USE_CUDA -ErrorAction SilentlyContinue }
