@@ -16,10 +16,18 @@ $PROJECT_ROOT   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $DIST_DIR       = Join-Path $PROJECT_ROOT "dist"
 $TARGET_DIR     = Join-Path $PROJECT_ROOT "target-cross"
 $VENDOR_DIR     = Join-Path $PROJECT_ROOT "vendor"
+
 $ESPEAK_SRC     = Join-Path $VENDOR_DIR "espeak-ng"
 $ESPEAK_BUILD   = Join-Path $ESPEAK_SRC "build-msvc"
 $ESPEAK_INSTALL = Join-Path $ESPEAK_BUILD "install"
+
+$PROTOC_TMP     = "C:\tmp\protoc"
+$PROTOC_SRC     = Join-Path $PROTOC_TMP "protobuf"
+$PROTOC_BUILD   = Join-Path $PROTOC_TMP "protobuf\build"
+$PROTOC_INSTALL = Join-Path $PROTOC_TMP "protobuf\install"
+
 $OPENBLAS_DIR   = Join-Path $VENDOR_DIR "openblas"
+
 $ONNX_SRC       = Join-Path $VENDOR_DIR "onnxruntime"
 $ONNX_BUILD     = Join-Path $ONNX_SRC "build-static"
 $UPLOAD_ENABLED = $true
@@ -139,8 +147,29 @@ else {
     Remove-Item Env:CUDA_ROOT -ErrorAction SilentlyContinue
 }
 
+
 # ==========================================================
-# BUILD ESPEAK-NG
+# BUILD PROTOC STATIC
+# ==========================================================
+
+# ensure directories
+New-Item -ItemType Directory -Force -Path $PROTOC_BUILD, $PROTOC_INSTALL
+
+git clone -b v3.21.12 https://github.com/protocolbuffers/protobuf.git $PROTOC_SRC
+cd $PROTOC_BUILD
+cmake $PROTOC_SRC\cmake `
+      -G "Visual Studio 17 2022" `
+      -A x64 `
+      -DCMAKE_BUILD_TYPE=Release `
+      -DCMAKE_INSTALL_PREFIX=$PROTOC_INSTALL `
+      -Dprotobuf_BUILD_TESTS=OFF `
+      -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded  # /MT static CRT
+cmake --build . --config Release --target INSTALL
+$env:PATH = "$PROTOC_INSTALL\bin;$env:PATH"
+
+
+# ==========================================================
+# BUILD ESPEAK-NG STATIC
 # ==========================================================
 $ESPEAK_LIB = Join-Path $ESPEAK_INSTALL "lib\espeak-ng.lib"
 
@@ -277,6 +306,8 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
     $cuda_root = $env:CUDAToolkit_ROOT
     cmake -S "$ONNX_SRC/cmake" -B "$ONNX_BUILD" -G "Visual Studio 17 2022" -A x64 `
         -DCMAKE_BUILD_TYPE=Release `
+        -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF `
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON `
         -Donnxruntime_BUILD_SHARED_LIB=OFF `
         -Donnxruntime_MSVC_STATIC_RUNTIME=ON `
         -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
@@ -291,7 +322,9 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         -Donnxruntime_USE_AVX=OFF `
         -Donnxruntime_USE_AVX2=OFF `
         -Donnxruntime_USE_AVX512=OFF `
+        -Donnxruntime_RUN_ONNX_TESTS=OFF `
         -DBUILD_TESTING=OFF `
+        -DProtobuf_ROOT=$PROTOC_INSTALL `
         -DCUDAToolkit_ROOT="$cuda_root"
 
     # -----------------------------
@@ -322,6 +355,7 @@ $env:CMAKE_ARGS              = "-DGGML_BLAS=ON -DGGML_BLAS_STATIC=ON -DGGML_BLAS
 $env:WHISPER_RS_STATIC_CRT   = "1"
 $env:ORT_SYS_STATIC_CRT      = "1"
 $env:ESPEAK_RS_STATIC_CRT    = "1"
+$env:ESPEAK_NG_DIR           = $ESPEAK_INSTALL
 
 # Set ORT crate feature flags
 if ($WITH_CUDA)    { $env:ORT_USE_CUDA = "1" } else { Remove-Item Env:ORT_USE_CUDA -ErrorAction SilentlyContinue }
