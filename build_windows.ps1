@@ -247,6 +247,9 @@ cmake $PROTOC_SRC\cmake `
     -G "Visual Studio 17 2022" `
     -A x64 `
     -DCMAKE_BUILD_TYPE=Release `
+    -DCMAKE_CXX_FLAGS_RELEASE=/MT `
+    -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT `
+    -DCMAKE_CXX_FLAGS_DEBUG=/MTd `
     -Dprotobuf_MSVC_STATIC_RUNTIME=ON `
     -DPROTOBUF_USE_DLLS=OFF `
     -DMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON `
@@ -418,7 +421,7 @@ Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET
 
 Write-Host "Building Rust binary..."
-cargo build -vv --release --target $TARGET --features ($CARGO_FEATURES -join ",")
+cargo build --release --target $TARGET --features ($CARGO_FEATURES -join ",")
 
 $SRC_BIN = Join-Path $PROJECT_ROOT "target\$TARGET\release\$BIN_BASE.exe"
 # Fallback: try plain release folder if cross-target folder does not exist
