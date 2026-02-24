@@ -249,7 +249,7 @@ cmake $PROTOC_SRC\cmake `
     -DCMAKE_BUILD_TYPE=Release `
     -Dprotobuf_MSVC_STATIC_RUNTIME=ON `
     -DPROTOBUF_USE_DLLS=OFF `
-    -CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON `
+    -DMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON `
     -DBUILD_SHARED_LIBS=OFF `
     -DCMAKE_INSTALL_PREFIX="$PROTOC_INSTALL" `
     -Dprotobuf_BUILD_TESTS=OFF `
@@ -313,6 +313,9 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         "-Donnxruntime_BUILD_SHARED_LIB=OFF",
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
+        "-DCMAKE_CXX_FLAGS_RELEASE=/MT",
+        "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT",
+        "-DCMAKE_CXX_FLAGS_DEBUG=/MTd",
         "-Donnxruntime_BUILD_UNIT_TESTS=OFF",
         "-Donnxruntime_USE_AVX=OFF",
         "-Donnxruntime_USE_AVX2=OFF",
