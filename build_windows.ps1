@@ -308,16 +308,8 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-DCMAKE_COMPILE_WARNING_AS_ERROR=OFF",
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         "-Donnxruntime_BUILD_SHARED_LIB=OFF",
-        "-DDonnxruntime_USE_STATIC_LIBS=ON",
-        "-Donnxruntime_MSVC_STATIC_RUNTIME=ON",
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
-        "-Donnxruntime_USE_EIGEN_FOR_BLAS=OFF",
-        "-Donnxruntime_USE_OPENBLAS=$ONNX_USE_BLAS",
-        "-Donnxruntime_OPENBLAS_INCLUDE_DIR=$INCLUDE_DIR",
-        "-Donnxruntime_OPENBLAS_LIB=$RENAMED_LIB",
         "-Donnxruntime_BUILD_UNIT_TESTS=OFF",
-        "-Donnxruntime_BUILD_TESTS=OFF",
-        "-Donnxruntime_ENABLE_TESTING=OFF",
         "-Donnxruntime_USE_AVX=OFF",
         "-Donnxruntime_USE_AVX2=OFF",
         "-Donnxruntime_USE_AVX512=OFF",
@@ -376,9 +368,18 @@ $env:ESPEAK_RS_STATIC_CRT    = "1"
 $env:ESPEAK_NG_DIR           = $ESPEAK_INSTALL
 
 # Merge all onnx libs into one (onnx produces multiple .lib files)
-lib /OUT:"$ORT_LIB_LOCATION\onnxruntime_merged.lib" $ORT_LIB_LOCATION\*.lib
+Write-Host "`n=== ONNX .lib files BEFORE merge ==="
+Get-ChildItem "$ONNX_BUILD\Release" -Filter *.lib -Recurse | ForEach-Object { Write-Host $_.FullName }
+$allLibs = Get-ChildItem -Path "$ONNX_BUILD\Release" -Filter *.lib -Recurse | Select-Object -ExpandProperty FullName
+$ORT_LIB_LOCATION = Join-Path $ONNX_BUILD "Release"
+lib /OUT:"$ORT_LIB_LOCATION\onnxruntime_merged.lib" $allLibs
+# Remove all the original .lib files except the merged one
 Get-ChildItem "$ORT_LIB_LOCATION\*.lib" | Where-Object { $_.Name -ne "onnxruntime_merged.lib" } | Remove-Item
+# Rename merged lib
 Rename-Item "$ORT_LIB_LOCATION\onnxruntime_merged.lib" "onnxruntime.lib"
+Write-Host "`n=== ONNX .lib files AFTER merge ==="
+Get-ChildItem "$ORT_LIB_LOCATION" -Filter *.lib | ForEach-Object { Write-Host $_.FullName }
+
 
 # Set ORT crate feature flags
 if ($WITH_CUDA)    { $env:ORT_USE_CUDA = "1" } else { Remove-Item Env:ORT_USE_CUDA -ErrorAction SilentlyContinue }
