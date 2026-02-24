@@ -322,7 +322,10 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-DProtobuf_INCLUDE_DIR=$PROTOC_INSTALL/include",
         "-DProtobuf_LIBRARIES=$PROTOC_INSTALL/lib/libprotobuf.lib;$PROTOC_INSTALL/lib/libprotoc.lib",
         "-DCMAKE_PREFIX_PATH=$PROTOC_INSTALL",
-        "-Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG"
+        "-Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG",
+        "-DCMAKE_CXX_FLAGS_RELEASE=/MT",
+        "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT",
+        "-DCMAKE_CXX_FLAGS_DEBUG=/MTd"
     )
 
     # Conditionally add CUDA-specific options only if CUDA is ON
