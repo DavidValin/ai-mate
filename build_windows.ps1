@@ -314,6 +314,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-Donnxruntime_USE_AVX2=OFF",
         "-Donnxruntime_USE_AVX512=OFF",
         "-Donnxruntime_RUN_ONNX_TESTS=OFF",
+        "-Donnxruntime_USE_XNNPACK=OFF",
         "-DBUILD_TESTING=OFF",
         "-DONNX_CUSTOM_PROTOC_EXECUTABLE=$PROTOC_BIN",
         "-DProtobuf_ROOT=$PROTOC_INSTALL",
@@ -367,14 +368,14 @@ $env:ORT_SYS_STATIC_CRT      = "1"
 $env:ESPEAK_RS_STATIC_CRT    = "1"
 $env:ESPEAK_NG_DIR           = $ESPEAK_INSTALL
 
-# Merge all onnx libs into one (onnx produces multiple .lib files)
+# Merge all ORT + deps libs into one (onnx produces multiple .lib files)
 Write-Host "`n=== ONNX .lib files BEFORE merge ==="
-Get-ChildItem "$ONNX_BUILD\Release" -Filter *.lib -Recurse | ForEach-Object { Write-Host $_.FullName }
-$allLibs = Get-ChildItem -Path "$ONNX_BUILD\Release" -Filter *.lib -Recurse | Select-Object -ExpandProperty FullName
+$allLibs = Get-ChildItem -Path $ONNX_BUILD -Filter *.lib -Recurse | Select-Object -ExpandProperty FullName
+$allLibs | ForEach-Object { Write-Host $_ }
 $ORT_LIB_LOCATION = Join-Path $ONNX_BUILD "Release"
 lib /OUT:"$ORT_LIB_LOCATION\onnxruntime_merged.lib" $allLibs
-# Remove all the original .lib files except the merged one
-Get-ChildItem "$ORT_LIB_LOCATION\*.lib" | Where-Object { $_.Name -ne "onnxruntime_merged.lib" } | Remove-Item
+# Remove all original .lib files except merged one
+Get-ChildItem "$ORT_LIB_LOCATION" -Filter *.lib | Where-Object { $_.Name -ne "onnxruntime_merged.lib" } | Remove-Item
 # Rename merged lib
 Rename-Item "$ORT_LIB_LOCATION\onnxruntime_merged.lib" "onnxruntime.lib"
 Write-Host "`n=== ONNX .lib files AFTER merge ==="
