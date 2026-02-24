@@ -429,7 +429,8 @@ if ($WITH_OPENBLAS) { $CARGO_FEATURES += "whisper-openblas" }
 if ($WITH_VULKAN)   { $CARGO_FEATURES += "whisper-vulkan" }
 if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 
-$env:RUSTFLAGS = "-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-args='/NODEFAULTLIB:MSVCRT.lib /DEFAULTLIB:libcmt.lib /DEFAULTLIB:legacy_stdio_definitions.lib'"
+# Before cargo build
+$env:RUSTFLAGS = "-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-args=`"/NODEFAULTLIB:MSVCRT.lib /DEFAULTLIB:libcmt.lib /DEFAULTLIB:legacy_stdio_definitions.lib`""
 
 Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET
