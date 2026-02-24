@@ -46,10 +46,6 @@ foreach ($tool in "cl.exe","cmake","git","cargo","powershell") {
     }
 }
 
-# ==========================================================
-# USE DYNAMIC RUST CRT TO MATCH ONNX /MD
-# ==========================================================
-$env:RUSTFLAGS = "-C opt-level=3"
 $env:CARGO_BUILD_JOBS = 1
 
 # ==========================================================
@@ -172,6 +168,13 @@ if (-not (Test-Path $ESPEAK_LIB)) {
           -G "Visual Studio 17 2022" `
           -A x64 `
           -DCMAKE_BUILD_TYPE=Release `
+          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+          -DCMAKE_C_FLAGS_RELEASE=/MT `
+          -DCMAKE_CXX_FLAGS_RELEASE=/MT `
+          -DCMAKE_C_FLAGS_RELWITHDEBINFO=/MT `
+          -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT `
+          -DCMAKE_C_FLAGS_DEBUG=/MTd `
+          -DCMAKE_CXX_FLAGS_DEBUG=/MTd `
           -DCMAKE_INSTALL_PREFIX=$ESPEAK_INSTALL `
           -DBUILD_SHARED_LIBS=OFF `
           -DESPEAKNG_BUILD_TESTS=OFF `
@@ -210,6 +213,13 @@ if ($WITH_OPENBLAS) {
     Push-Location $src_dir
     cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
       -DBUILD_SHARED_LIBS=OFF `
+      -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+      -DCMAKE_C_FLAGS_RELEASE=/MT `
+      -DCMAKE_CXX_FLAGS_RELEASE=/MT `
+      -DCMAKE_C_FLAGS_RELWITHDEBINFO=/MT `
+      -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT `
+      -DCMAKE_C_FLAGS_DEBUG=/MTd `
+      -DCMAKE_CXX_FLAGS_DEBUG=/MTd `
       -DNO_LAPACK=ON `
       -DUSE_OPENMP=ON `
       -DCMAKE_INSTALL_PREFIX="$PREBUILT_OPENBLAS_DIR"
@@ -247,16 +257,19 @@ cmake $PROTOC_SRC\cmake `
     -G "Visual Studio 17 2022" `
     -A x64 `
     -DCMAKE_BUILD_TYPE=Release `
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+    -DCMAKE_C_FLAGS_RELEASE=/MT `
     -DCMAKE_CXX_FLAGS_RELEASE=/MT `
+    -DCMAKE_C_FLAGS_RELWITHDEBINFO=/MT `
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT `
+    -DCMAKE_C_FLAGS_DEBUG=/MTd `
     -DCMAKE_CXX_FLAGS_DEBUG=/MTd `
     -Dprotobuf_MSVC_STATIC_RUNTIME=ON `
     -DPROTOBUF_USE_DLLS=OFF `
     -DMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON `
     -DBUILD_SHARED_LIBS=OFF `
     -DCMAKE_INSTALL_PREFIX="$PROTOC_INSTALL" `
-    -Dprotobuf_BUILD_TESTS=OFF `
-    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded  # /MT static CRT
+    -Dprotobuf_BUILD_TESTS=OFF
 cmake --build . --config Release --target INSTALL
 $PROTOC_BIN = "$PROTOC_INSTALL\bin\protoc.exe"
 
@@ -312,12 +325,16 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-G", "Visual Studio 17 2022",
         "-A", "x64",
         "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_SHARED_LIBS=OFF",
         "-DCMAKE_COMPILE_WARNING_AS_ERROR=OFF",
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         "-Donnxruntime_BUILD_SHARED_LIB=OFF",
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
+        "-DCMAKE_C_FLAGS_RELEASE=/MT",
         "-DCMAKE_CXX_FLAGS_RELEASE=/MT",
+        "-DCMAKE_C_FLAGS_RELWITHDEBINFO=/MT",
         "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT",
+        "-DCMAKE_C_FLAGS_DEBUG=/MTd",
         "-DCMAKE_CXX_FLAGS_DEBUG=/MTd",
         "-Donnxruntime_BUILD_UNIT_TESTS=OFF",
         "-Donnxruntime_USE_AVX=OFF",
@@ -330,12 +347,9 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-DONNX_USE_PROTOBUF_SHARED_LIBS=OFF",
         "-DProtobuf_USE_STATIC_LIBS=ON",
         "-DProtobuf_INCLUDE_DIR=$PROTOC_INSTALL/include",
-        "-DProtobuf_LIBRARIES=$PROTOC_INSTALL/lib/libprotobuf-lite.a;$PROTOC_INSTALL/lib/libprotoc.lib",
+        "-DProtobuf_LIBRARIES=$PROTOC_INSTALL/lib/libprotobuf-lite.lib;$PROTOC_INSTALL/lib/libprotoc.lib",
         "-DCMAKE_PREFIX_PATH=$PROTOC_INSTALL",
-        "-Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG",
-        "-DCMAKE_CXX_FLAGS_RELEASE=/MT",
-        "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT",
-        "-DCMAKE_CXX_FLAGS_DEBUG=/MTd"
+        "-Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG"
     )
 
     # Conditionally add CUDA-specific options only if CUDA is ON
@@ -415,7 +429,7 @@ if ($WITH_OPENBLAS) { $CARGO_FEATURES += "whisper-openblas" }
 if ($WITH_VULKAN)   { $CARGO_FEATURES += "whisper-vulkan" }
 if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 
-$env:RUSTFLAGS = "-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3"
+$env:RUSTFLAGS = "-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-args='/NODEFAULTLIB:MSVCRT.lib /DEFAULTLIB:libcmt.lib /DEFAULTLIB:legacy_stdio_definitions.lib'"
 
 Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET
