@@ -329,7 +329,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-DCMAKE_COMPILE_WARNING_AS_ERROR=OFF",
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         "-Donnxruntime_BUILD_SHARED_LIB=OFF",
-        "-Donnxruntime_ENABLE_STATIC_ANALYSIS=ON",
+        "-Donnxruntime_ENABLE_STATIC_ANALYSIS=OFF",
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
         "-DCMAKE_C_FLAGS_RELEASE=/MT",
         "-DCMAKE_CXX_FLAGS_RELEASE=/MT",

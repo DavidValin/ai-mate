@@ -33,10 +33,37 @@ fn get_home_dir() -> String {
 }
 
 fn main() {
-  // make openblas static build work
-  if let Ok(lib_dir) = std::env::var("OPENBLAS_LIB_DIR") {
-    println!("cargo:rustc-link-search=native={}", lib_dir);
-    println!("cargo:rustc-link-lib=static=openblas");
+  // -----------------------------
+  // Optional: Link prebuilt Whisper/GGML/OpenBLAS if available
+  // -----------------------------
+  if let Ok(lib_dir) = env::var("WHISPER_PREBUILT_LIB") {
+      println!("cargo:rerun-if-env-changed=WHISPER_PREBUILT_LIB");
+      println!("cargo:rustc-link-search=native={}", lib_dir);
+      println!("cargo:rustc-link-lib=static=whisper");
+      println!("cargo:rustc-link-lib=static=ggml");
+      println!("cargo:rustc-link-lib=static=openblas");
+      println!("cargo:rustc-link-lib=pthread");
+
+      let include_dir = Path::new(&lib_dir).join("..").join("include");
+      println!("cargo:include={}", include_dir.display());
+  } else {
+      println!("cargo:warning=WHISPER_PREBUILT_LIB not set, skipping prebuilt Whisper/GGML/OpenBLAS linking");
+  }
+
+  // -----------------------------
+  // Link built eSpeak NG from PowerShell build
+  // -----------------------------
+  if let Ok(espeak_dir) = env::var("ESPEAK_NG_DIR") {
+      println!("cargo:rerun-if-env-changed=ESPEAK_NG_DIR");
+
+      let espeak_lib_dir = Path::new(&espeak_dir).join("lib");
+      println!("cargo:rustc-link-search=native={}", espeak_lib_dir.display());
+      println!("cargo:rustc-link-lib=static=espeak-ng");
+
+      let espeak_include_dir = Path::new(&espeak_dir).join("include");
+      println!("cargo:include={}", espeak_include_dir.display());
+  } else {
+      println!("cargo:warning=ESPEAK_NG_DIR not set, skipping prebuilt eSpeak NG linking");
   }
 
   let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
