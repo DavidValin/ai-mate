@@ -169,6 +169,8 @@ if (-not (Test-Path $ESPEAK_LIB)) {
           -A x64 `
           -DCMAKE_BUILD_TYPE=Release `
           -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+          -DCMAKE_C_FLAGS=/MT `
+          -DCMAKE_CXX_FLAGS=/MT `
           -DCMAKE_C_FLAGS_RELEASE=/MT `
           -DCMAKE_CXX_FLAGS_RELEASE=/MT `
           -DCMAKE_C_FLAGS_RELWITHDEBINFO=/MT `
@@ -214,6 +216,8 @@ if ($WITH_OPENBLAS) {
     cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
       -DBUILD_SHARED_LIBS=OFF `
       -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+      -DCMAKE_C_FLAGS=/MT `
+      -DCMAKE_CXX_FLAGS=/MT `
       -DCMAKE_C_FLAGS_RELEASE=/MT `
       -DCMAKE_CXX_FLAGS_RELEASE=/MT `
       -DCMAKE_C_FLAGS_RELWITHDEBINFO=/MT `
@@ -331,6 +335,8 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-Donnxruntime_BUILD_SHARED_LIB=OFF",
         "-Donnxruntime_ENABLE_STATIC_ANALYSIS=OFF",
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
+        "-DCMAKE_C_FLAGS=/MT",
+        "-DCMAKE_CXX_FLAGS=/MT"
         "-DCMAKE_C_FLAGS_RELEASE=/MT",
         "-DCMAKE_CXX_FLAGS_RELEASE=/MT",
         "-DCMAKE_C_FLAGS_RELWITHDEBINFO=/MT",
@@ -430,7 +436,14 @@ if ($WITH_VULKAN)   { $CARGO_FEATURES += "whisper-vulkan" }
 if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 
 # Before cargo build
-$env:RUSTFLAGS = "-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-arg=/DEFAULTLIB:OLDNAMES.lib -C link-arg=/NODEFAULTLIB:MSVCRT.lib -C link-arg=/DEFAULTLIB:libcmt.lib -C link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib"
+$env:RUSTFLAGS = "-C target-feature=+crt-static `
+                  -C codegen-units=1 `
+                  -C opt-level=3 `
+                  -C link-arg=/DEFAULTLIB:libcmt.lib `
+                  -C link-arg=/DEFAULTLIB:ucrt.lib `
+                  -C link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib `
+                  -C link-arg=/DEFAULTLIB:OLDNAMES.lib `
+                  -C link-arg=/NODEFAULTLIB:MSVCRT.lib"
 
 Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET
