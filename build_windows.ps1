@@ -249,29 +249,29 @@ if ($WITH_OPENBLAS) {
 # BUILD PROTOC STATIC
 # ==========================================================
 
-git clone -b v3.21.12 https://github.com/protocolbuffers/protobuf.git $PROTOC_SRC
+# git clone -b v3.21.12 https://github.com/protocolbuffers/protobuf.git $PROTOC_SRC
 # ensure directories
-New-Item -ItemType Directory -Force -Path $PROTOC_BUILD, $PROTOC_INSTALL
-cd $PROTOC_BUILD
-cmake $PROTOC_SRC\cmake `
-    -G "Visual Studio 17 2022" `
-    -A x64 `
-    -DCMAKE_BUILD_TYPE=Release `
-    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
-    -DCMAKE_C_FLAGS_RELEASE=/MT `
-    -DCMAKE_CXX_FLAGS_RELEASE=/MT `
-    -DCMAKE_C_FLAGS_RELWITHDEBINFO=/MT `
-    -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT `
-    -DCMAKE_C_FLAGS_DEBUG=/MTd `
-    -DCMAKE_CXX_FLAGS_DEBUG=/MTd `
-    -Dprotobuf_MSVC_STATIC_RUNTIME=ON `
-    -DPROTOBUF_USE_DLLS=OFF `
-    -DMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON `
-    -DBUILD_SHARED_LIBS=OFF `
-    -DCMAKE_INSTALL_PREFIX="$PROTOC_INSTALL" `
-    -Dprotobuf_BUILD_TESTS=OFF
-cmake --build . --config Release --target INSTALL
-$PROTOC_BIN = "$PROTOC_INSTALL\bin\protoc.exe"
+# New-Item -ItemType Directory -Force -Path $PROTOC_BUILD, $PROTOC_INSTALL
+# cd $PROTOC_BUILD
+# cmake $PROTOC_SRC\cmake `
+#     -G "Visual Studio 17 2022" `
+#     -A x64 `
+#     -DCMAKE_BUILD_TYPE=Release `
+#     -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+#     -DCMAKE_C_FLAGS_RELEASE=/MT `
+#     -DCMAKE_CXX_FLAGS_RELEASE=/MT `
+#     -DCMAKE_C_FLAGS_RELWITHDEBINFO=/MT `
+#     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/MT `
+#     -DCMAKE_C_FLAGS_DEBUG=/MTd `
+#     -DCMAKE_CXX_FLAGS_DEBUG=/MTd `
+#     -Dprotobuf_MSVC_STATIC_RUNTIME=ON `
+#     -DPROTOBUF_USE_DLLS=OFF `
+#     -DMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON `
+#     -DBUILD_SHARED_LIBS=OFF `
+#     -DCMAKE_INSTALL_PREFIX="$PROTOC_INSTALL" `
+#     -Dprotobuf_BUILD_TESTS=OFF
+# cmake --build . --config Release --target INSTALL
+# $PROTOC_BIN = "$PROTOC_INSTALL\bin\protoc.exe"
 
 # ==========================================================
 # BUILD ONNX RUNTIME (Single Block, No Duplicates)
@@ -346,12 +346,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-Donnxruntime_USE_DML=OFF",
         "-DBUILD_TESTING=OFF",
         "-DONNX_USE_MSVC_STATIC_RUNTIME=ON",
-        "-DONNX_CUSTOM_PROTOC_EXECUTABLE=$PROTOC_BIN",
         "-DONNX_USE_PROTOBUF_SHARED_LIBS=OFF",
-        "-Dprotobuf_MSVC_STATIC_RUNTIME=ON",
-        "-DProtobuf_USE_STATIC_LIBS=ON",
-        "-DProtobuf_INCLUDE_DIR=$PROTOC_INSTALL/include",
-        "-DProtobuf_LIBRARIES=$PROTOC_INSTALL/lib/libprotobuf-lite.lib;$PROTOC_INSTALL/lib/libprotoc.lib",
         "-Donnxruntime_USE_FULL_PROTOBUF=ON",
         "-DCMAKE_PREFIX_PATH=$PROTOC_INSTALL",
         "-Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG"
