@@ -412,16 +412,16 @@ $env:ESPEAK_RS_STATIC_CRT    = "1"
 $env:ESPEAK_NG_DIR           = $ESPEAK_INSTALL
 
 # Merge all ORT + deps libs into one (onnx produces multiple .lib files)
-Write-Host "`n=== ONNX .lib files BEFORE merge ==="
-$allLibs = Get-ChildItem -Path $ONNX_BUILD -Filter *.lib -Recurse | Select-Object -ExpandProperty FullName
-$allLibs | ForEach-Object { Write-Host $_ }
-lib /OUT:"$ORT_LIB_LOCATION\onnxruntime_merged.lib" $allLibs
-# Remove all original .lib files except merged one
-Get-ChildItem "$ORT_LIB_LOCATION" -Filter *.lib | Where-Object { $_.Name -ne "onnxruntime_merged.lib" } | Remove-Item
-# Rename merged lib
-Rename-Item "$ORT_LIB_LOCATION\onnxruntime_merged.lib" "onnxruntime.lib"
-Write-Host "`n=== ONNX .lib files AFTER merge ==="
-Get-ChildItem "$ORT_LIB_LOCATION" -Filter *.lib | ForEach-Object { Write-Host $_.FullName }
+# Write-Host "`n=== ONNX .lib files BEFORE merge ==="
+# $allLibs = Get-ChildItem -Path $ONNX_BUILD -Filter *.lib -Recurse | Select-Object -ExpandProperty FullName
+# $allLibs | ForEach-Object { Write-Host $_ }
+# lib /OUT:"$ORT_LIB_LOCATION\onnxruntime_merged.lib" $allLibs
+# # Remove all original .lib files except merged one
+# Get-ChildItem "$ORT_LIB_LOCATION" -Filter *.lib | Where-Object { $_.Name -ne "onnxruntime_merged.lib" } | Remove-Item
+# # Rename merged lib
+# Rename-Item "$ORT_LIB_LOCATION\onnxruntime_merged.lib" "onnxruntime.lib"
+# Write-Host "`n=== ONNX .lib files AFTER merge ==="
+# Get-ChildItem "$ORT_LIB_LOCATION" -Filter *.lib | ForEach-Object { Write-Host $_.FullName }
 
 
 # Set ORT crate feature flags
@@ -443,10 +443,13 @@ if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 
 # Before cargo build
 $env:RUSTFLAGS = "-C target-feature=+crt-static `
-                  -C codegen-units=1 `
-                  -C opt-level=3 `
-                  -C link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib `
-                  -C link-arg=/DEFAULTLIB:OLDNAMES.lib"
+-C codegen-units=1 `
+-C opt-level=3 `
+# MSVC static CRT
+-l static=libcmt `
+-l static=libcpmt `
+-C link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib `
+-C link-arg=/DEFAULTLIB:OLDNAMES.lib"
 
 
 Write-Host "Ensuring Rust target $TARGET is installed..."

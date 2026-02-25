@@ -69,11 +69,51 @@ fn main() {
   // -----------------------------
   // Optionally link ONNX Runtime
   // -----------------------------
+  // Look for ONNX Runtime library location
   if let Ok(ort_lib_dir) = env::var("ORT_LIB_LOCATION") {
-      println!("cargo:rustc-link-search=native={}", ort_lib_dir);
-      println!("cargo:rustc-link-lib=static=onnxruntime");
+      let lib_path = Path::new(&ort_lib_dir);
 
-      let ort_include_dir = Path::new(&ort_lib_dir).join("..").join("include");
+      // Tell Cargo where to search for native libraries
+      println!("cargo:rustc-link-search=native={}", lib_path.display());
+
+      // Iterate over all library files in the directory
+      if cfg!(windows) {
+          // On Windows, link all .lib files statically
+          for entry in fs::read_dir(lib_path).expect("Failed to read ORT_LIB_LOCATION") {
+              let entry = entry.expect("Failed to read entry in ORT_LIB_LOCATION");
+              let path = entry.path();
+              if let Some(ext) = path.extension() {
+                  if ext == "lib" {
+                      let stem = path.file_stem().unwrap().to_string_lossy();
+                      println!("cargo:rustc-link-lib=static={}", stem);
+                  }
+              }
+          }
+      } else if cfg!(unix) {
+          // On Unix/macOS, link all .a (static) or .so/.dylib (dynamic) files
+          for entry in fs::read_dir(lib_path).expect("Failed to read ORT_LIB_LOCATION") {
+              let entry = entry.expect("Failed to read entry in ORT_LIB_LOCATION");
+              let path = entry.path();
+              if let Some(ext) = path.extension() {
+                  match ext.to_str() {
+                      Some("a") => {
+                          let stem = path.file_stem().unwrap().to_string_lossy();
+                          println!("cargo:rustc-link-lib=static={}", stem);
+                      }
+                      Some("so") | Some("dylib") => {
+                          let stem = path.file_stem().unwrap().to_string_lossy();
+                          // On Unix, dynamic libraries are linked without the "lib" prefix
+                          let lib_name = stem.strip_prefix("lib").unwrap_or(&stem);
+                          println!("cargo:rustc-link-lib={}", lib_name);
+                      }
+                      _ => {}
+                  }
+              }
+          }
+      }
+
+      // Set include path for ONNX Runtime headers
+      let ort_include_dir = lib_path.join("..").join("include");
       println!("cargo:include={}", ort_include_dir.display());
   }
 
