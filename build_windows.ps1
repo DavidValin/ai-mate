@@ -134,7 +134,7 @@ if ($WITH_CUDA) {
         $env:Path = "$cuda_root\bin;$env:Path"
         Write-Host "CUDA_PATH = $env:CUDA_PATH"
     }
-} 
+}
 else {
     Remove-Item Env:CUDAToolkit_ROOT -ErrorAction SilentlyContinue
     Remove-Item Env:CUDA_PATH -ErrorAction SilentlyContinue
@@ -329,6 +329,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-DCMAKE_COMPILE_WARNING_AS_ERROR=OFF",
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         "-Donnxruntime_BUILD_SHARED_LIB=OFF",
+        "-Donnxruntime_ENABLE_STATIC_ANALYSIS=ON",
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
         "-DCMAKE_C_FLAGS_RELEASE=/MT",
         "-DCMAKE_CXX_FLAGS_RELEASE=/MT",
@@ -342,12 +343,16 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-Donnxruntime_USE_AVX512=OFF",
         "-Donnxruntime_RUN_ONNX_TESTS=OFF",
         "-Donnxruntime_USE_XNNPACK=OFF",
+        "-Donnxruntime_USE_DML=OFF",
         "-DBUILD_TESTING=OFF",
+        "-DONNX_USE_MSVC_STATIC_RUNTIME=ON",
         "-DONNX_CUSTOM_PROTOC_EXECUTABLE=$PROTOC_BIN",
         "-DONNX_USE_PROTOBUF_SHARED_LIBS=OFF",
+        "-Dprotobuf_MSVC_STATIC_RUNTIME=ON",
         "-DProtobuf_USE_STATIC_LIBS=ON",
         "-DProtobuf_INCLUDE_DIR=$PROTOC_INSTALL/include",
         "-DProtobuf_LIBRARIES=$PROTOC_INSTALL/lib/libprotobuf-lite.lib;$PROTOC_INSTALL/lib/libprotoc.lib",
+        "-Donnxruntime_USE_FULL_PROTOBUF=ON",
         "-DCMAKE_PREFIX_PATH=$PROTOC_INSTALL",
         "-Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG"
     )
@@ -430,7 +435,7 @@ if ($WITH_VULKAN)   { $CARGO_FEATURES += "whisper-vulkan" }
 if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 
 # Before cargo build
-$env:RUSTFLAGS = "-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-args='-- /NODEFAULTLIB:MSVCRT.lib /DEFAULTLIB:libcmt.lib /DEFAULTLIB:legacy_stdio_definitions.lib'"
+$env:RUSTFLAGS = '-C target-feature=+crt-static -C codegen-units=1 -C opt-level=3 -C link-args="-- /NODEFAULTLIB:MSVCRT.lib /DEFAULTLIB:libcmt.lib /DEFAULTLIB:legacy_stdio_definitions.lib"'
 
 Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET

@@ -25,7 +25,8 @@ whisper-rs = { version = "0.15.1" }
 hound = "3"
 crossterm = "0.27"
 tokio = { version = "1", features = ["rt", "macros"] }
-kokoro-tiny = { version = "0.2.0", git = "https://github.com/DavidValin/kokoro-tiny.git", rev = "bdf5788" }
+kokoro-tiny = { version = "0.2.0", git = "https://github.com/DavidValin/kokoro-tiny.git", rev = "cd9524a" }
+ort = { version = "2.0.0-rc.11", default-features = false, features = [ "std", "ndarray", "tls-native", "copy-dylibs" ] }
 flate2 = "1"
 tar = "0.4"
 sha2 = "0.10"
@@ -48,9 +49,11 @@ strip = "symbols"
 incremental = false
 
 [features]
-whisper-openblas = ["whisper-rs/openblas"]
-whisper-vulkan   = ["whisper-rs/vulkan"]
-whisper-cuda     = ["whisper-rs/cuda"]
-whisper-hipblas  = ["whisper-rs/hipblas"]
-whisper-metal    = ["whisper-rs/metal"]
-whisper-logs     = ["whisper-rs/log_backend", "whisper-rs/tracing_backend"]
+default               = []
+whisper-openblas      = ["whisper-rs/openblas"]
+whisper-vulkan        = ["whisper-rs/vulkan"]
+whisper-cuda          = ["whisper-rs/cuda"]
+whisper-hipblas       = ["whisper-rs/hipblas"]
+whisper-metal         = ["whisper-rs/metal"]
+whisper-logs          = ["whisper-rs/log_backend", "whisper-rs/tracing_backend"]
+ort-download-binaries = ["ort/download-binaries"]
