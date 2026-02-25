@@ -438,11 +438,9 @@ if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 $env:RUSTFLAGS = "-C target-feature=+crt-static `
                   -C codegen-units=1 `
                   -C opt-level=3 `
-                  -C link-arg=/DEFAULTLIB:libcmt.lib `
-                  -C link-arg=/DEFAULTLIB:ucrt.lib `
                   -C link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib `
                   -C link-arg=/DEFAULTLIB:OLDNAMES.lib `
-                  -C link-arg=/NODEFAULTLIB:MSVCRT.lib"
+
 
 Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET
