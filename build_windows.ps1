@@ -445,7 +445,6 @@ if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 $env:RUSTFLAGS = "-C target-feature=+crt-static `
 -C codegen-units=1 `
 -C opt-level=3 `
-# MSVC static CRT
 -l static=libcmt `
 -l static=libcpmt `
 -C link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib `
