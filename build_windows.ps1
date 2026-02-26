@@ -468,7 +468,7 @@ Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET
 
 Write-Host "Building Rust binary..."
-cargo build --release --target $TARGET --features ($CARGO_FEATURES -join ",")
+cargo build --release --target $TARGET --features ($CARGO_FEATURES -join ",") -vv
 
 $SRC_BIN = Join-Path $PROJECT_ROOT "target\$TARGET\release\$BIN_BASE.exe"
 # Fallback: try plain release folder if cross-target folder does not exist
