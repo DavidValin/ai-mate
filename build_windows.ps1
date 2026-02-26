@@ -355,17 +355,17 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
         "-DCMAKE_CXX_FLAGS_DEBUG=/MTd /D_CRT_NONSTDC_NO_DEPRECATE /D_CRT_SECURE_NO_WARNINGS",
         "-DCMAKE_EXE_LINKER_FLAGS=/DEFAULTLIB:legacy_stdio_definitions.lib /DEFAULTLIB:OLDNAMES.lib",
         "-DCMAKE_STATIC_LINKER_FLAGS=/DEFAULTLIB:legacy_stdio_definitions.lib /DEFAULTLIB:OLDNAMES.lib",
-        "-Donnxruntime_BUILD_UNIT_TESTS=OFF",
+        "-Donnxruntime_BUILD_UNIT_TESTS=ON",
         "-Donnxruntime_USE_AVX=OFF",
         "-Donnxruntime_USE_AVX2=OFF",
         "-Donnxruntime_USE_AVX512=OFF",
-        "-Donnxruntime_RUN_ONNX_TESTS=OFF",
+        "-Donnxruntime_RUN_ONNX_TESTS=ON",
         "-Donnxruntime_USE_XNNPACK=OFF",
         "-Donnxruntime_USE_DML=OFF",
-        "-DBUILD_TESTING=OFF",
+        "-DBUILD_TESTING=ON",
         "-DONNX_USE_MSVC_STATIC_RUNTIME=ON",
         "-DONNX_USE_PROTOBUF_SHARED_LIBS=OFF",
-        "-Donnxruntime_USE_FULL_PROTOBUF=ON",
+        "-Donnxruntime_USE_FULL_PROTOBUF=OFF",
         "-Donnxruntime_USE_CUDA=$ONNX_CUDA_FLAG"
     )
 
@@ -429,8 +429,8 @@ $env:ESPEAK_NG_DIR           = $ESPEAK_INSTALL
 # Get-ChildItem "$ORT_LIB_LOCATION" -Filter *.lib | Where-Object { $_.Name -ne "onnxruntime_merged.lib" } | Remove-Item
 # # Rename merged lib
 # Rename-Item "$ORT_LIB_LOCATION\onnxruntime_merged.lib" "onnxruntime.lib"
-# Write-Host "`n=== ONNX .lib files AFTER merge ==="
-# Get-ChildItem "$ORT_LIB_LOCATION" -Filter *.lib | ForEach-Object { Write-Host $_.FullName }
+Write-Host "`n=== ONNX .lib files ==="
+Get-ChildItem "$ORT_LIB_LOCATION" -Filter *.lib | ForEach-Object { Write-Host $_.FullName }
 
 
 # Set ORT crate feature flags
