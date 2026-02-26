@@ -2,7 +2,9 @@
 //  Keyboard handling
 // ------------------------------------------------------------------
 
-use crate::state::{GLOBAL_STATE, decrease_voice_speed, increase_voice_speed};
+use crate::log;
+use crate::state;
+use crate::state::{decrease_voice_speed, increase_voice_speed, GLOBAL_STATE};
 use crate::tts;
 use crossbeam_channel::{Receiver, Sender};
 use crossterm::{
@@ -10,8 +12,8 @@ use crossterm::{
   terminal,
 };
 use std::sync::{
-  Arc, Mutex,
   atomic::{AtomicBool, AtomicU64, Ordering},
+  Arc, Mutex,
 };
 use std::time::{Duration, Instant};
 
@@ -21,7 +23,6 @@ use std::time::{Duration, Instant};
 pub fn keyboard_thread(
   stop_all_tx: Sender<()>,
   stop_all_rx: Receiver<()>,
-  _paused: Arc<AtomicBool>,
   recording_paused: Arc<AtomicBool>,
   voice_state: Arc<Mutex<String>>,
   tts: String,
@@ -31,6 +32,8 @@ pub fn keyboard_thread(
   ptt: bool,
 ) {
   // Raw mode lets us capture single key presses (space to pause/resume).
+  crate::log::log("debug", "Keyboard thread started");
+
   let _ = terminal::enable_raw_mode();
   let mut last_esc: Option<Instant> = None;
 
@@ -53,7 +56,30 @@ pub fn keyboard_thread(
           }
         }
 
+        // custom scroll keys
         match k.code {
+          KeyCode::Char('k') | KeyCode::PageUp => {
+            let state = crate::state::GLOBAL_STATE.get().unwrap();
+            let step = terminal::size().unwrap_or((80, 24)).1 as i32;
+            let new_offset = state
+              .scroll_offset
+              .load(Ordering::Relaxed)
+              .saturating_add(step);
+            state.scroll_offset.store(new_offset, Ordering::Relaxed);
+            // crate::log::log("debug", &format!("Scroll up offset={}", new_offset));
+          }
+
+          KeyCode::Char('j') | KeyCode::PageDown => {
+            let state = crate::state::GLOBAL_STATE.get().unwrap();
+            let step = terminal::size().unwrap_or((80, 24)).1 as i32;
+            let new_offset = state
+              .scroll_offset
+              .load(Ordering::Relaxed)
+              .saturating_sub(step);
+            state.scroll_offset.store(new_offset, Ordering::Relaxed);
+            // crate::log::log("debug", &format!("Scroll down offset={}", new_offset));
+          }
+
           KeyCode::Char(' ') => {
             if ptt {
               crate::log::log("debug", &format!("SPACE event kind={:?}", k.kind));
@@ -83,6 +109,7 @@ pub fn keyboard_thread(
               }
             }
           }
+
           KeyCode::Esc => {
             let _ = stop_play_tx.try_send(());
             let now = Instant::now();

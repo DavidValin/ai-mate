@@ -2,7 +2,7 @@
 //  Application state
 // ------------------------------------------------------------------
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 // API
@@ -33,6 +33,8 @@ pub struct AppState {
   pub ui: UiState,
   pub speed: AtomicU32,
   pub conversation_history: std::sync::Arc<std::sync::Mutex<String>>,
+  pub scroll_offset: Arc<AtomicI32>, // scroll offset for UI rendering
+
   pub playback: PlaybackState,
   pub status_line: Arc<Mutex<String>>,
   pub interrupt_counter: Arc<AtomicU64>,
@@ -66,6 +68,7 @@ impl AppState {
       interrupt_counter: Arc::new(AtomicU64::new(0)),
       recording_paused: Arc::new(AtomicBool::new(false)),
       processing_response: Arc::new(AtomicBool::new(false)),
+      scroll_offset: Arc::new(AtomicI32::new(0)),
     }
   }
 }

@@ -12,6 +12,33 @@ use crossterm::{
   terminal::{self, Clear, ClearType},
 };
 use std::io::{self, Write};
+
+fn adjust_scroll(previous_lines_buffer: &[String]) -> i32 {
+  let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+  let max_display = if log::is_verbose() {
+    ((terminal_height as f32) / 1.6).round() as usize
+  } else {
+    terminal_height as usize - 2
+  };
+  let new_offset = previous_lines_buffer.len().saturating_sub(max_display);
+  if let Some(state) = GLOBAL_STATE.get() {
+    let current = state
+      .scroll_offset
+      .load(std::sync::atomic::Ordering::Relaxed) as usize;
+    // If user has scrolled up (current < new_offset), keep current; otherwise move to bottom
+    let adjusted = if current < new_offset {
+      new_offset
+    } else {
+      current
+    };
+    state
+      .scroll_offset
+      .store(adjusted as i32, std::sync::atomic::Ordering::Relaxed);
+  }
+
+  new_offset as i32
+}
+
 use std::sync::{
   atomic::{AtomicBool, Ordering},
   Arc, Mutex,
@@ -22,6 +49,8 @@ use std::time::Duration;
 // API
 
 pub static STOP_STREAM: AtomicBool = AtomicBool::new(false);
+
+pub static UNFINISHED_LAST_LINE_BUFFER: Mutex<String> = Mutex::new(String::new());
 // ------------------------------------------------------------------
 
 // ANSI label styling
@@ -39,7 +68,7 @@ pub fn spawn_ui_thread(
   thread::spawn(move || {
     let mut out = io::stdout();
     let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let i = 0usize;
+    let mut i = 0usize;
 
     let ui_for_bg = ui.clone();
     let status_line_for_bg = status_line.clone();
@@ -71,9 +100,11 @@ pub fn spawn_ui_thread(
     // hide cursor
     execute!(out, Hide).unwrap();
 
-    // buffer for top region
+    // previous_lines_buffer for top region
     let mut top_lines: Vec<String> = Vec::new();
     let mut exit_ui = false;
+    let mut prev_scroll = 0usize;
+    let mut needs_full_redraw = false;
 
     loop {
       if stop_all_rx.try_recv().is_ok() {
@@ -82,14 +113,25 @@ pub fn spawn_ui_thread(
       }
       let state = GLOBAL_STATE.get().expect("AppState not initialized");
       let conversation_paused = state.conversation_paused.load(Ordering::Relaxed);
+      let cur_scroll = GLOBAL_STATE
+        .get()
+        .unwrap()
+        .scroll_offset
+        .load(Ordering::Relaxed) as usize;
 
       let (cols_raw, terminal_height) = terminal::size().unwrap_or((80, 24));
       let cols = cols_raw as usize;
+      // cur_scroll will be read each loop iteration
 
       while let Ok(msg) = ui_rx.try_recv() {
         if stop_all_rx.try_recv().is_ok() {
           while let Ok(_) = ui_rx.try_recv() {}
           break;
+        }
+        // Check if scroll offset changed without a message
+        if cur_scroll != prev_scroll {
+          redraw_top_region(&mut out, &top_lines, terminal_height, &[], true);
+          needs_full_redraw = true;
         }
 
         let mut parts = msg.splitn(2, '|');
@@ -118,9 +160,8 @@ pub fn spawn_ui_thread(
               }
 
               if !body.is_empty() {
-                print_inline_chunk(&mut out, &mut top_lines, body, terminal_height - 1, cols);
+                print_inline_chunk(&mut out, &mut top_lines, body, cols);
               }
-              // skip_stream = false;
             }
 
             "stream" => {
@@ -128,11 +169,12 @@ pub fn spawn_ui_thread(
               if STOP_STREAM.load(Ordering::Relaxed) {
                 break;
               }
-              print_inline_chunk(&mut out, &mut top_lines, msg_str, terminal_height - 1, cols);
+              print_inline_chunk(&mut out, &mut top_lines, msg_str, cols);
             }
             "stop_ui" => {
               print_line(&mut top_lines, "");
               print_line(&mut top_lines, "🛑 USER interrupted");
+              print_line(&mut top_lines, "");
               while let Ok(_) = ui_rx.try_recv() {}
               exit_ui = true;
               STOP_STREAM.store(true, Ordering::Relaxed);
@@ -141,17 +183,27 @@ pub fn spawn_ui_thread(
             _ => {}
           }
         }
-        if stop_all_rx.try_recv().is_ok() {
-          while let Ok(_) = ui_rx.try_recv() {}
-          break;
+        if needs_full_redraw {
+          redraw_top_region(&mut out, &top_lines, terminal_height, &[], true);
+          needs_full_redraw = false;
         }
+
+        let full_bar = update_bottom_bar(&ui, &status_line, &peak, &spinner, &mut i);
+        print_bottom_bar(&mut out, &full_bar).unwrap();
       }
+
       if exit_ui {
         // Reset flags and clear stream stop
         STOP_STREAM.store(false, Ordering::Relaxed);
         exit_ui = false;
         continue;
       }
+      // redraw if scroll changed without new message
+      if cur_scroll != prev_scroll {
+        redraw_top_region(&mut out, &top_lines, terminal_height, &[], true);
+      }
+      // set prev_scroll for next loop
+      prev_scroll = cur_scroll;
     }
   })
 }
@@ -162,23 +214,50 @@ pub fn spawn_ui_thread(
 // delay per character for smooth typing
 const STREAM_DELAY_MS: u64 = 2;
 
-fn print_line(buffer: &mut Vec<String>, line: &str) {
-  buffer.push(line.to_string());
-  buffer.push(String::new()); // force a fresh line after
+fn print_line(previous_lines_buffer: &mut Vec<String>, line: &str) {
+  // Flush any unfinished buffer content before printing a new line
+  let mut buf_guard = UNFINISHED_LAST_LINE_BUFFER.lock().unwrap();
+  if !buf_guard.is_empty() {
+    previous_lines_buffer.push((*buf_guard).clone());
+    buf_guard.clear();
+    adjust_scroll(previous_lines_buffer);
+  }
+  previous_lines_buffer.push(line.to_string());
+
+  // render the line immediately
+  if previous_lines_buffer.len() >= 2 {
+    let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+    let line_no = (previous_lines_buffer.len() - 1) as u16; // index of the line just added
+    let line_to_print = &previous_lines_buffer[previous_lines_buffer.len() - 1];
+    let mut out = io::stdout();
+    execute!(
+      out,
+      MoveTo(0, line_no),
+      Clear(ClearType::CurrentLine),
+      Print(line_to_print)
+    )
+    .unwrap();
+    out.flush().unwrap();
+
+    // Update scroll offset if previous_lines_buffer exceeds visible area
+    adjust_scroll(previous_lines_buffer);
+    // redraw top region after any scroll adjustment
+    redraw_top_region(&mut out, &previous_lines_buffer, terminal_height, &[], true);
+  }
 }
 
 fn print_inline_chunk<W: Write>(
   out: &mut W,
-  buffer: &mut Vec<String>,
+  previous_lines_buffer: &mut Vec<String>,
   chunk: &str,
-  terminal_height: u16,
   cols: usize,
 ) {
-  let mut chars_since_redraw = 0;
-
   // Ensure there is at least one line
-  if buffer.is_empty() {
-    buffer.push(String::new());
+  if previous_lines_buffer.is_empty() {
+    previous_lines_buffer.push(String::new());
+    adjust_scroll(&previous_lines_buffer);
+    let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+    redraw_top_region(out, &previous_lines_buffer, terminal_height, &[], true);
   }
 
   for ch in chunk.chars() {
@@ -188,38 +267,102 @@ fn print_inline_chunk<W: Write>(
       return;
     }
 
-    // Wrap line if exceeds terminal width
+    // Current unfinished buffer
+    let mut buf_guard = UNFINISHED_LAST_LINE_BUFFER.lock().unwrap();
+    let unfinished_len = get_visible_len_for(&buf_guard);
 
-    if get_visible_len_for(buffer.last().unwrap()) >= cols {
-      buffer.push(String::new());
-    }
-
-    // Append character or create a new line for breaks
-    if ch == '\n' || ch == '.' {
-      buffer.push(String::new());
-    } else {
-      // Re-borrow last line only when appending
-      if let Some(last_line) = buffer.last_mut() {
-        last_line.push(ch);
+    // Check if adding this character would exceed width
+    if unfinished_len + 1 > cols {
+      // Wrap: flush current buffer as a line, but keep last word on new line if possible
+      if !buf_guard.is_empty() {
+        let buf_string = (*buf_guard).clone();
+        // Find last whitespace to avoid breaking a word
+        if let Some(idx) = buf_string.rfind(|c: char| c.is_whitespace()) {
+          let (first, second) = buf_string.split_at(idx + 1);
+          previous_lines_buffer.push(first.to_string());
+          *buf_guard = second.to_string();
+          // Render the wrapped line immediately
+          let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+          redraw_top_region(out, &previous_lines_buffer, terminal_height, &[], true);
+        } else {
+          // No whitespace, push whole buffer and start new line
+          previous_lines_buffer.push(buf_string);
+          buf_guard.clear();
+        }
+        adjust_scroll(&previous_lines_buffer);
       }
-    }
 
-    // Redraw in batches
-    chars_since_redraw += 1;
-    if chars_since_redraw >= 5 {
-      redraw_top_region(out, buffer, terminal_height);
-      chars_since_redraw = 0;
+      // Add current character to the new line buffer
+      buf_guard.push(ch);
+      // Render the new line
+      let current_line = (*buf_guard).clone();
+      let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+      let max_line = terminal_height - 2;
+      let mut line_no = previous_lines_buffer.len() as u16;
+      if line_no > max_line {
+        line_no = max_line;
+      }
+      execute!(
+        out,
+        MoveTo(0, line_no),
+        Clear(ClearType::CurrentLine),
+        Print(&current_line)
+      )
+      .unwrap();
+      if line_no == max_line {
+        redraw_top_region(out, &previous_lines_buffer, terminal_height, &[], true);
+      }
+    } else if ch == '\n'
+      || (ch == '.'
+        && !buf_guard.is_empty()
+        && buf_guard.chars().last().unwrap_or(' ').is_ascii_digit())
+    {
+      if ch == '.' {
+        // Append dot to buffer but do not break line
+        // (avoids adding new line if dot is right after a number)
+        buf_guard.push(ch);
+        continue;
+      }
+      // Handle newline or other breaks
+      if !buf_guard.is_empty() {
+        let buf_string = (*buf_guard).clone();
+        previous_lines_buffer.push(buf_string);
+        buf_guard.clear();
+        adjust_scroll(&previous_lines_buffer);
+      }
+      // No empty line added
+    } else {
+      buf_guard.push(ch);
+      let current_line = (*buf_guard).clone();
+      let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+      let max_line = terminal_height - 2;
+      let mut line_no = previous_lines_buffer.len() as u16;
+      if line_no > max_line {
+        line_no = max_line;
+      }
+      execute!(
+        out,
+        MoveTo(0, line_no),
+        Clear(ClearType::CurrentLine),
+        Print(&current_line)
+      )
+      .unwrap();
+      if line_no == max_line {
+        redraw_top_region(out, &previous_lines_buffer, terminal_height, &[], true);
+      }
     }
 
     thread::sleep(Duration::from_millis(STREAM_DELAY_MS));
   }
-
-  if chars_since_redraw > 0 {
-    redraw_top_region(out, buffer, terminal_height);
-  }
 }
 
-fn redraw_top_region<W: Write>(out: &mut W, buffer: &[String], max_height: u16) {
+fn redraw_top_region<W: Write>(
+  out: &mut W,
+  previous_lines_buffer: &[String],
+  max_height: u16,
+  prev_buffer: &[String],
+  full_redraw: bool,
+) {
   let draw_height = if log::is_verbose() {
     // keep space in verbose mode to see the logs
     ((max_height as f32) / 1.6).round() as usize
@@ -227,40 +370,70 @@ fn redraw_top_region<W: Write>(out: &mut W, buffer: &[String], max_height: u16) 
     max_height.saturating_sub(2) as usize // leave 2 lines space for error logs
   };
 
-  // Determine the start line so the bottom of the buffer is visible
-  let start = buffer.len().saturating_sub(draw_height);
+  // Determine the start line so the bottom of the previous_lines_buffer is visible
+  let max_scroll = previous_lines_buffer.len().saturating_sub(draw_height);
+  let scroll_raw = GLOBAL_STATE
+    .get()
+    .unwrap()
+    .scroll_offset
+    .load(std::sync::atomic::Ordering::Relaxed);
+  let scroll = if scroll_raw < 0 {
+    0
+  } else {
+    scroll_raw as usize
+  };
 
-  for (i, line) in buffer[start..].iter().enumerate() {
-    execute!(
-      out,
-      MoveTo(0, i as u16),
-      Clear(ClearType::CurrentLine),
-      Print(line)
-    )
-    .unwrap();
+  // only display visible portion and keep last two lines empty
+  let effective_len = previous_lines_buffer.len();
+
+  let start = scroll;
+
+  for i in 0..draw_height {
+    let idx = start + i;
+    if idx < effective_len {
+      let line = &previous_lines_buffer[idx];
+      let prev_line = prev_buffer.get(idx).map(|s| s.as_str()).unwrap_or("");
+      if full_redraw || line != prev_line {
+        execute!(
+          out,
+          MoveTo(0, i as u16),
+          Clear(ClearType::CurrentLine),
+          Print(line)
+        )
+        .unwrap();
+      }
+    } else {
+      // clear remaining lines in top region
+      execute!(out, MoveTo(0, i as u16), Clear(ClearType::CurrentLine)).unwrap();
+    }
   }
 
-  // Fill remaining lines if buffer is shorter than draw_height
-  for i in buffer[start..].len()..draw_height {
-    execute!(out, MoveTo(0, i as u16), Clear(ClearType::CurrentLine)).unwrap();
+  // cursor stays on the last line of the rendered region
+  if draw_height > 0 {
+    execute!(out, MoveTo(0, (draw_height - 1) as u16)).unwrap();
   }
-
   out.flush().unwrap();
 }
 
 fn print_bottom_bar<W: Write>(out: &mut W, status: &str) -> std::io::Result<()> {
   let (_, terminal_height) = terminal::size()?;
   let last_y = terminal_height.saturating_sub(1);
-
-  execute!(out, MoveTo(0, last_y), Clear(ClearType::CurrentLine))?;
+  // move to the last line and overwrite the existing content
+  let (_, width) = terminal::size()?;
+  let vis = get_visible_len_for(status);
+  let trailing_len = if vis < width as usize {
+    width as usize - vis
+  } else {
+    0
+  };
+  let trailing = " ".repeat(trailing_len);
   execute!(
     out,
     MoveTo(0, last_y),
     ResetColor,
     Print(status),
-    ResetColor
+    Print(trailing)
   )?;
-  // keep cursor at bottom line
   out.flush()?;
   Ok(())
 }

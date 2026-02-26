@@ -369,7 +369,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
   // ---- Thread: keyboard ----
   let state_for_key = state.clone();
-  let paused_for_key = paused.clone();
   let recording_paused_for_key = recording_paused.clone();
   let voice_for_key = state_for_key.voice.clone();
   let args_tts_for_key = args.tts.clone();
@@ -381,7 +380,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       keyboard::keyboard_thread(
         stop_all_tx_for_key.clone(),
         stop_all_rx_for_keyboard.clone(),
-        paused_for_key.clone(),
         recording_paused_for_key.clone(),
         voice_for_key.clone(),
         args_tts_for_key.clone(),
