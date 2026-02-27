@@ -142,6 +142,19 @@ else {
     Remove-Item Env:CUDA_ROOT -ErrorAction SilentlyContinue
 }
 
+# Create a CMake initial cache file to force static runtime for all dependencies
+$cacheFile = Join-Path $ONNX_BUILD "initial-cache.cmake"
+New-Item -ItemType Directory -Force -Path $ONNX_BUILD | Out-Null
+@"
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "")
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW CACHE STRING "")
+set(ABSL_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
+set(ONNX_USE_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
+set(onnxruntime_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
+set(CMAKE_CXX_STANDARD 17 CACHE STRING "Use C++17 standard")
+SET(CMAKE_CXX_STANDARD_REQUIRED ON CACHE BOOL "")
+"@ | Out-File -FilePath $cacheFile -Encoding ASCII
+
 # ==========================================================
 # BUILD ESPEAK-NG STATIC
 # ==========================================================
@@ -337,18 +350,7 @@ if (-not (Test-Path (Join-Path $ONNX_BUILD "Release\onnxruntime.lib"))) {
     # -----------------------------
     # Configure ONNX Runtime using CMake
     # -----------------------------
-    # Create a CMake initial cache file to force static runtime for all dependencies
-    $cacheFile = Join-Path $ONNX_BUILD "initial-cache.cmake"
-    New-Item -ItemType Directory -Force -Path $ONNX_BUILD | Out-Null
-    @"
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded`$<`$<CONFIG:Debug>:Debug>" CACHE STRING "")
-set(CMAKE_POLICY_DEFAULT_CMP0091 NEW CACHE STRING "")
-set(ABSL_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
-set(ONNX_USE_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
-set(onnxruntime_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
-set(CMAKE_CXX_STANDARD 17 CACHE STRING "Use C++17 standard")
-SET(CMAKE_CXX_STANDARD_REQUIRED ON CACHE BOOL "")
-"@ | Out-File -FilePath $cacheFile -Encoding ASCII
+
 
     $ONNX_CMAKE_ARGS = @(
         "-S", "$ONNX_SRC/cmake",
@@ -491,24 +493,77 @@ if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 $env:RUSTFLAGS = "-C target-feature=+crt-static `
                   -C codegen-units=1 `
                   -C opt-level=3 `
-                  -L native=$ONNX_BUILD\_deps\onnx-build\Release `
-                  -L native=$env:VCPKG_ROOT\installed\x64-windows-static\lib `
-                  -L native=$ONNX_BUILD\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\base\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\container\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\crc\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\flags\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\hash\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\log\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\numeric\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\profiling\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\strings\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\synchronization\Release `
-                  -L native=$ONNX_BUILD\_deps\abseil_cpp-build\absl\time\Release `
-                  -L native=$ONNX_BUILD\_deps\flatbuffers-build\Release `
-                  -L native=$ONNX_BUILD\_deps\onnx-build\Release `
-                  -L native=$ONNX_BUILD\_deps\protobuf-build\Release `
-                  -L native=$ONNX_BUILD\_deps\pytorch_cpuinfo-build\Release `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/base/Release/absl_base.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/base/Release/absl_log_severity.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/base/Release/absl_malloc_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/base/Release/absl_raw_logging_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/base/Release/absl_spinlock_wait.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/base/Release/absl_strerror.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/base/Release/absl_throw_delegate.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/base/Release/absl_tracing_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/container/Release/absl_hashtablez_sampler.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/container/Release/absl_raw_hash_set.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/crc/Release/absl_crc_cord_state.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/crc/Release/absl_crc_cpu_detect.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/crc/Release/absl_crc_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/crc/Release/absl_crc32c.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/debugging/Release/absl_debugging_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/debugging/Release/absl_decode_rust_punycode.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/debugging/Release/absl_demangle_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/debugging/Release/absl_demangle_rust.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/debugging/Release/absl_examine_stack.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/debugging/Release/absl_leak_check.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/debugging/Release/absl_stacktrace.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/debugging/Release/absl_symbolize.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/debugging/Release/absl_utf8_for_code_point.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/flags/Release/absl_flags_commandlineflag_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/flags/Release/absl_flags_commandlineflag.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/flags/Release/absl_flags_config.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/flags/Release/absl_flags_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/flags/Release/absl_flags_marshalling.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/flags/Release/absl_flags_private_handle_accessor.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/flags/Release/absl_flags_program_name.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/flags/Release/absl_flags_reflection.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/hash/Release/absl_city.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/hash/Release/absl_hash.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/hash/Release/absl_low_level_hash.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_globals.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_check_op.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_conditions.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_fnmatch.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_format.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_globals.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_log_sink_set.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_message.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_nullguard.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_proto.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_internal_structured_proto.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_log_sink.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/log/Release/absl_vlog_config_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/numeric/Release/absl_int128.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/profiling/Release/absl_exponential_biased.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/strings/Release/absl_cord_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/strings/Release/absl_cord.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/strings/Release/absl_cordz_functions.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/strings/Release/absl_cordz_handle.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/strings/Release/absl_cordz_info.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/strings/Release/absl_str_format_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/strings/Release/absl_string_view.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/strings/Release/absl_strings_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/strings/Release/absl_strings.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/synchronization/Release/absl_graphcycles_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/synchronization/Release/absl_kernel_timeout_internal.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/synchronization/Release/absl_synchronization.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/time/Release/absl_civil_time.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/time/Release/absl_time_zone.lib `
+                  -C link-arg=$ONNX_BUILD/_deps/abseil_cpp-build/absl/time/Release/absl_time.lib `
+                  -L native=$env:VCPKG_ROOT/installed/x64-windows-static/lib `
+                  -L native=$ONNX_BUILD/_deps/flatbuffers-build/Release `
+                  -L native=$ONNX_BUILD/_deps/onnx-build/Release `
+                  -L native=$ONNX_BUILD/_deps/protobuf-build/Release `
+                  -L native=$ONNX_BUILD/_deps/pytorch_cpuinfo-build/Release `
+                  -L native=$ONNX_BUILD/_deps/onnx-build/Release `
+                  -L native=$ONNX_BUILD/Release `
                   -C link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib `
                   -C link-arg=/DEFAULTLIB:OLDNAMES.lib "
 
