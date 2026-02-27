@@ -410,6 +410,14 @@ set(onnxruntime_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
 
 
 # ==========================================================
+# INSTALL RE2 as static lib
+# ==========================================================
+$env:VCPKG_ROOT = "C:\vcpkg"
+& "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+& "$env:VCPKG_ROOT\vcpkg.exe" install re2:x64-windows-static
+
+
+# ==========================================================
 # EXPORT ENVIRONMENT
 # ==========================================================
 $env:ONNXRUNTIME_INCLUDE_DIR = Join-Path $ONNX_SRC "include"
@@ -475,6 +483,7 @@ if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 $env:RUSTFLAGS = "-C target-feature=+crt-static `
                   -C codegen-units=1 `
                   -C opt-level=3 `
+                  -L native=$env:VCPKG_ROOT\installed\x64-windows-static\lib `
                   -C link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib `
                   -C link-arg=/DEFAULTLIB:OLDNAMES.lib"
 
