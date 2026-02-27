@@ -168,6 +168,8 @@ if (-not (Test-Path $ESPEAK_LIB)) {
       -G "Visual Studio 17 2022" `
       -A x64 `
       -DCMAKE_BUILD_TYPE=Release `
+      -DCMAKE_CXX_STANDARD=17 `
+      -DCMAKE_CXX_STANDARD_REQUIRED=ON `
       -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
       -DCMAKE_C_FLAGS="/MT /D_CRT_NONSTDC_NO_DEPRECATE /D_CRT_SECURE_NO_WARNINGS" `
       -DCMAKE_CXX_FLAGS="/MT /D_CRT_NONSTDC_NO_DEPRECATE /D_CRT_SECURE_NO_WARNINGS" `
@@ -218,6 +220,8 @@ if ($WITH_OPENBLAS) {
     cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
       -DBUILD_SHARED_LIBS=OFF `
       -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+      -DCMAKE_CXX_STANDARD=17 `
+      -DCMAKE_CXX_STANDARD_REQUIRED=ON `
       -DCMAKE_C_FLAGS="/MT /D_CRT_NONSTDC_NO_DEPRECATE /D_CRT_SECURE_NO_WARNINGS" `
       -DCMAKE_CXX_FLAGS="/MT /D_CRT_NONSTDC_NO_DEPRECATE /D_CRT_SECURE_NO_WARNINGS" `
       -DCMAKE_C_FLAGS_RELEASE="/MT /D_CRT_NONSTDC_NO_DEPRECATE /D_CRT_SECURE_NO_WARNINGS" `
@@ -342,6 +346,8 @@ set(CMAKE_POLICY_DEFAULT_CMP0091 NEW CACHE STRING "")
 set(ABSL_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
 set(ONNX_USE_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
 set(onnxruntime_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
+set(CMAKE_CXX_STANDARD 17 CACHE STRING "Use C++17 standard")
+SET(CMAKE_CXX_STANDARD_REQUIRED ON CACHE BOOL "")
 "@ | Out-File -FilePath $cacheFile -Encoding ASCII
 
     $ONNX_CMAKE_ARGS = @(
@@ -350,6 +356,8 @@ set(onnxruntime_MSVC_STATIC_RUNTIME ON CACHE BOOL "")
         "-C", "$cacheFile",
         "-G", "Visual Studio 17 2022",
         "-A", "x64",
+        "-DCMAKE_CXX_STANDARD=17",
+        "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
         "-DCMAKE_BUILD_TYPE=Release",
         "-DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER",
         "-DBUILD_SHARED_LIBS=OFF",
@@ -504,6 +512,7 @@ $env:RUSTFLAGS = "-C target-feature=+crt-static `
                   -C link-arg=/DEFAULTLIB:legacy_stdio_definitions.lib `
                   -C link-arg=/DEFAULTLIB:OLDNAMES.lib "
 
+$env:CXXFLAGS="/std:c++17 /MT /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_DEPRECATE"
 
 Write-Host "Ensuring Rust target $TARGET is installed..."
 rustup target add $TARGET
