@@ -374,10 +374,46 @@ cmake --build $ONNX_BUILD --config Release
 # ==========================================================
 # INSTALL RE2 as static lib
 # ==========================================================
-$VCPKG_ROOT = "C:\vcpkg"
-$env:VCPKG_ROOT = $VCPKG_ROOT
-& "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
-& "$env:VCPKG_ROOT\vcpkg.exe" install re2:x64-windows-static
+# -----------------------------
+# CONFIG
+# -----------------------------
+$Re2ZipUrl = "https://github.com/google/re2/archive/refs/tags/2024-07-02.zip"
+$DownloadDir = "C:\Temp\re2_download"
+$InstallDir  = "$ONNX_BUILD/_deps/onnx-build/Release"
+
+# Create folders
+New-Item -ItemType Directory -Path $DownloadDir -Force
+New-Item -ItemType Directory -Path $InstallDir -Force
+# download
+$ZipFile = Join-Path $DownloadDir "re2-2024-07-02.zip"
+Write-Host "Downloading RE2..."
+Invoke-WebRequest -Uri $Re2ZipUrl -OutFile $ZipFile
+# extract
+$ExtractDir = Join-Path $DownloadDir "re2_src"
+Write-Host "Extracting RE2..."
+Expand-Archive -Path $ZipFile -DestinationPath $ExtractDir -Force
+# After extraction, RE2 source will be in a folder like 're2-2024-07-02'
+$SourceDir = Join-Path $ExtractDir "re2-2024-07-02"
+# build static lib
+$BuildDir = Join-Path $SourceDir "build"
+New-Item -ItemType Directory -Path $BuildDir -Force
+Set-Location $BuildDir
+
+Write-Host "Configuring CMake..."
+cmake -G "Visual Studio 17 2022" `
+      -A x64 `
+      -DCMAKE_BUILD_TYPE=Release `
+      -DCMAKE_INSTALL_PREFIX=$InstallDir `
+      -DBUILD_SHARED_LIBS=OFF `
+      -DRE2_BUILD_TESTING=OFF `
+      $SourceDir
+
+cmake --build . --config Release
+cmake --build . --config Release --target INSTALL
+
+Write-Host "Done installing re2.lib!"
+Write-Host "Static library: $InstallDir\lib"
+Write-Host "Headers: $InstallDir\include"
 
 
 # ==========================================================
@@ -415,7 +451,6 @@ Write-Host "`n=== VCPKG .lib files in $env:VCPKG_ROOT ==="
 Get-ChildItem -Path "$env:VCPKG_ROOT" -Recurse -File -Filter *.lib |
     ForEach-Object { Write-Host $_.FullName }
 
-
 # Set ORT crate feature flags
 if ($WITH_CUDA)    { $env:ORT_USE_CUDA = "1" } else { Remove-Item Env:ORT_USE_CUDA -ErrorAction SilentlyContinue }
 if ($WITH_OPENBLAS){ $env:ORT_USE_OPENMP = "1" } else { Remove-Item Env:ORT_USE_OPENMP -ErrorAction SilentlyContinue }
@@ -436,7 +471,7 @@ if ($WITH_CUDA)     { $CARGO_FEATURES += "whisper-cuda" }
 
 # Move vcpkg re2.lib dep to target folder so ort-sys can find it
 # NOTE: (for some reason onnx runtime doesnt build re2.lib)
-Copy-Item -Path "C:\vcpkg\installed\x64-windows-static\lib\re2.lib" -Destination "$ONNX_BUILD\_deps\onnx-build\Release\re2.lib" -Force
+# Copy-Item -Path "C:\vcpkg\installed\x64-windows-static\lib\re2.lib" -Destination "$ONNX_BUILD\_deps\onnx-build\Release\re2.lib" -Force
 Remove-Item -Path "C:\vcpkg\installed\*" -Recurse -Force
 Remove-Item -Path "C:\vcpkg\buildtrees\*" -Recurse -Force
 Remove-Item -Path "C:\vcpkg\packages\*" -Recurse -Force
