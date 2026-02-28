@@ -404,6 +404,8 @@ cmake -G "Visual Studio 17 2022" `
       -A x64 `
       -DCMAKE_BUILD_TYPE=Release `
       -DCMAKE_INSTALL_PREFIX=$InstallDir `
+      -DCMAKE_PREFIX_PATH="$ONNX_BUILD/_deps/abseil_cpp-build" `
+      -Dabsl_DIR="$ONNX_BUILD/_deps/abseil_cpp-build" `
       -DBUILD_SHARED_LIBS=OFF `
       -DRE2_BUILD_TESTING=OFF `
       $SourceDir
