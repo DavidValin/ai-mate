@@ -9,13 +9,15 @@ use store_memory::StoreMemoryTool;
 // API
 // ------------------------------------------------------------------
 
-
 pub mod remember;
 pub mod store_memory;
 
 pub trait Tool {
   fn name(&self) -> &str;
-  fn handle(&self, tool_call_args: &Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
+  fn handle(
+    &self,
+    tool_call_args: &Value,
+  ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
   fn json_schema() -> Result<Value, Box<dyn std::error::Error + Send + Sync>>;
 }
 

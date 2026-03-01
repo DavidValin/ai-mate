@@ -2,18 +2,18 @@
 //  LLM handling
 // ------------------------------------------------------------------
 
-use std::sync::{Arc, atomic::AtomicU64, OnceLock};
+use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
 pub static TOOLS_SUPPORTED: OnceLock<bool> = OnceLock::new();
-use crossbeam_channel::Receiver;
-use reqwest::{StatusCode, Client};
-use crate::tools::{get_available_tools};
+use crate::tools::Tool;
+use crate::tools::get_available_tools;
 use crate::tools::remember::RememberTool;
 use crate::tools::store_memory::StoreMemoryTool;
-use crate::tools::Tool;
-use futures_util::StreamExt;
-use serde_json::{Value, json};
 use bytes::Bytes;
+use crossbeam_channel::Receiver;
+use futures_util::StreamExt;
+use reqwest::{Client, StatusCode};
+use serde_json::{Value, json};
 
 fn extract_tool_calls_from_choice(choice: &Value) -> Option<String> {
   let wrapper = json!({"choices":[choice]});
@@ -25,20 +25,27 @@ pub async fn llama_server_stream_response_into(
   prompt: &str,
   llama_host: &str,
   llama_model: &str,
-  
+
   server_type: &str,
   stop_all_rx: &Receiver<()>,
   interrupt_counter: Arc<AtomicU64>,
   expected_interrupt: u64,
   on_piece: &mut dyn FnMut(&str),
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
   let mut full_payload = String::new();
   #[derive(Clone, Copy, Debug)]
-  enum ApiKind { OaiChat, OllamaGenerate, OllamaChat, LegacyCompletion }
+  enum ApiKind {
+    OaiChat,
+    OllamaGenerate,
+    OllamaChat,
+    LegacyCompletion,
+  }
 
   #[derive(serde::Serialize)]
-  struct ChatMessage<'a> { role: &'a str, content: &'a str }
+  struct ChatMessage<'a> {
+    role: &'a str,
+    content: &'a str,
+  }
 
   #[derive(serde::Serialize)]
   struct OaiChatReq<'a> {
@@ -47,7 +54,7 @@ pub async fn llama_server_stream_response_into(
     stream: bool,
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<&'a str>
+    tool_choice: Option<&'a str>,
   }
 
   #[derive(serde::Serialize)]
@@ -59,7 +66,7 @@ pub async fn llama_server_stream_response_into(
     max_tokens: Option<u32>,
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<&'a str>
+    tool_choice: Option<&'a str>,
   }
 
   #[derive(serde::Serialize)]
@@ -69,7 +76,7 @@ pub async fn llama_server_stream_response_into(
     stream: bool,
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<&'a str>
+    tool_choice: Option<&'a str>,
   }
 
   #[derive(serde::Serialize)]
@@ -100,39 +107,63 @@ pub async fn llama_server_stream_response_into(
     slot_id: i32,
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<&'a str>
+    tool_choice: Option<&'a str>,
   }
 
   fn should_fallback_status(code: StatusCode) -> bool {
     matches!(
       code,
       StatusCode::NOT_FOUND
-      | StatusCode::METHOD_NOT_ALLOWED
-      | StatusCode::UNPROCESSABLE_ENTITY
-      | StatusCode::BAD_REQUEST
-      | StatusCode::UNSUPPORTED_MEDIA_TYPE
+        | StatusCode::METHOD_NOT_ALLOWED
+        | StatusCode::UNPROCESSABLE_ENTITY
+        | StatusCode::BAD_REQUEST
+        | StatusCode::UNSUPPORTED_MEDIA_TYPE
     )
   }
 
   fn candidates(host: &str, server_type: &str) -> Vec<(String, ApiKind)> {
-    let base = host.trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/');
+    let base = host
+      .trim_start_matches("http://")
+      .trim_start_matches("https://")
+      .trim_end_matches('/');
     let mut out = Vec::new();
     match server_type {
       "llama-server" => {
-        out.push((format!("http://{}/completion", base), ApiKind::LegacyCompletion));
+        out.push((
+          format!("http://{}/completion", base),
+          ApiKind::LegacyCompletion,
+        ));
         out.push((format!("http://{}/api/chat", base), ApiKind::OllamaChat));
       }
       "ollama" => {
-        out.push((format!("http://{}/v1/generate", base), ApiKind::OllamaGenerate));
+        out.push((
+          format!("http://{}/v1/generate", base),
+          ApiKind::OllamaGenerate,
+        ));
         out.push((format!("http://{}/api/chat", base), ApiKind::OllamaChat));
-        out.push((format!("http://{}/v1/chat/completions", base), ApiKind::OaiChat));
-        out.push((format!("http://{}/completion", base), ApiKind::LegacyCompletion));
+        out.push((
+          format!("http://{}/v1/chat/completions", base),
+          ApiKind::OaiChat,
+        ));
+        out.push((
+          format!("http://{}/completion", base),
+          ApiKind::LegacyCompletion,
+        ));
       }
       _ => {
-        out.push((format!("http://{}/v1/generate", base), ApiKind::OllamaGenerate));
+        out.push((
+          format!("http://{}/v1/generate", base),
+          ApiKind::OllamaGenerate,
+        ));
         out.push((format!("http://{}/api/chat", base), ApiKind::OllamaChat));
-        out.push((format!("http://{}/v1/chat/completions", base), ApiKind::OaiChat));
-        out.push((format!("http://{}/completion", base), ApiKind::LegacyCompletion));
+        out.push((
+          format!("http://{}/v1/chat/completions", base),
+          ApiKind::OaiChat,
+        ));
+        out.push((
+          format!("http://{}/completion", base),
+          ApiKind::LegacyCompletion,
+        ));
       }
     }
     out
@@ -144,9 +175,10 @@ pub async fn llama_server_stream_response_into(
   let tool_schemas = get_available_tools()?;
 
   for (url, kind) in tries {
-    if stop_all_rx.try_recv().is_ok() ||
-      interrupt_counter.load(std::sync::atomic::Ordering::SeqCst) != expected_interrupt {
-        return Ok(());
+    if stop_all_rx.try_recv().is_ok()
+      || interrupt_counter.load(std::sync::atomic::Ordering::SeqCst) != expected_interrupt
+    {
+      return Ok(());
     }
 
     crate::log::log("info", &format!("Trying endpoint: {}", url));
@@ -154,16 +186,26 @@ pub async fn llama_server_stream_response_into(
     let req = match kind {
       ApiKind::OaiChat => {
         let messages = vec![
-          ChatMessage { role: "system", content: "You are a helpful assistant." },
-          ChatMessage { role: "user", content: prompt },
+          ChatMessage {
+            role: "system",
+            content: "You are a helpful assistant.",
+          },
+          ChatMessage {
+            role: "user",
+            content: prompt,
+          },
         ];
         let tools_supported = crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false);
         let payload = serde_json::to_value(OaiChatReq {
           model: llama_model,
           messages,
           stream: true,
-          tools: if tools_supported { Some(tool_schemas.clone()) } else { None },
-          tool_choice: if tools_supported { Some("auto") } else { None }
+          tools: if tools_supported {
+            Some(tool_schemas.clone())
+          } else {
+            None
+          },
+          tool_choice: if tools_supported { Some("auto") } else { None },
         })?;
         // crate::log::log("debug", &format!("LLM payload: {}", payload));
         client.post(&url).json(&payload)
@@ -176,8 +218,12 @@ pub async fn llama_server_stream_response_into(
           prompt: prompt,
           stream: true,
           max_tokens: Some(1024),
-          tools: if tools_supported { Some(tool_schemas.clone()) } else { None },
-          tool_choice: if tools_supported { Some("auto") } else { None }
+          tools: if tools_supported {
+            Some(tool_schemas.clone())
+          } else {
+            None
+          },
+          tool_choice: if tools_supported { Some("auto") } else { None },
         })?;
         //crate::log::log("debug", &format!("LLM payload: {}", payload));
         client.post(&url).json(&payload)
@@ -185,16 +231,26 @@ pub async fn llama_server_stream_response_into(
 
       ApiKind::OllamaChat => {
         let messages = vec![
-          ChatMessage { role: "system", content: "You are a helpful assistant." },
-          ChatMessage { role: "user", content: prompt },
+          ChatMessage {
+            role: "system",
+            content: "You are a helpful assistant.",
+          },
+          ChatMessage {
+            role: "user",
+            content: prompt,
+          },
         ];
         let tools_supported = crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false);
         let payload = serde_json::to_value(OllamaChatReq {
           model: llama_model,
           messages: messages,
           stream: true,
-          tools: if tools_supported { Some(tool_schemas.clone()) } else { None },
-          tool_choice: if tools_supported { Some("auto") } else { None }
+          tools: if tools_supported {
+            Some(tool_schemas.clone())
+          } else {
+            None
+          },
+          tool_choice: if tools_supported { Some("auto") } else { None },
         })?;
         //crate::log::log("debug", &format!("LLM payload: {}", payload));
         client.post(&url).json(&payload)
@@ -227,8 +283,12 @@ pub async fn llama_server_stream_response_into(
           cache_prompt: true,
           api_key: "",
           slot_id: -1,
-          tools: if tools_supported { Some(tool_schemas.clone()) } else { None },
-          tool_choice: if tools_supported { Some("auto") } else { None }
+          tools: if tools_supported {
+            Some(tool_schemas.clone())
+          } else {
+            None
+          },
+          tool_choice: if tools_supported { Some("auto") } else { None },
         })?;
         //crate::log::log("debug", &format!("LLM payload: {}", payload));
         client.post(&url).json(&payload)
@@ -253,7 +313,11 @@ pub async fn llama_server_stream_response_into(
       let status = resp.status();
       last_err = Some(format!("Endpoint {} returned HTTP {}", url, status));
       log::warn!("{}", last_err.as_ref().unwrap());
-      if should_fallback_status(status) { continue; } else { return Err(last_err.clone().unwrap().into()); }
+      if should_fallback_status(status) {
+        continue;
+      } else {
+        return Err(last_err.clone().unwrap().into());
+      }
     }
 
     crate::log::log("info", &format!("Streaming response from: {}", url));
@@ -262,8 +326,8 @@ pub async fn llama_server_stream_response_into(
 
     while let Some(chunk_result) = stream.next().await {
       // check stop signal mid-stream
-      if stop_all_rx.try_recv().is_ok() ||
-        interrupt_counter.load(std::sync::atomic::Ordering::SeqCst) != expected_interrupt
+      if stop_all_rx.try_recv().is_ok()
+        || interrupt_counter.load(std::sync::atomic::Ordering::SeqCst) != expected_interrupt
       {
         return Ok(());
       }
@@ -343,91 +407,91 @@ pub async fn llama_server_stream_response_into(
   }
 
   // all endpoints failed
-  Err(last_err.unwrap_or_else(|| "No endpoint candidates succeeded".to_string()).into())
+  Err(
+    last_err
+      .unwrap_or_else(|| "No endpoint candidates succeeded".to_string())
+      .into(),
+  )
 }
 
-
 pub async fn supports_tool_calls(
-    model: &str,
-    llm_engine_type: &str,
-    base_url: &str,
+  model: &str,
+  llm_engine_type: &str,
+  base_url: &str,
 ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-    let client = reqwest::Client::new();
+  let client = reqwest::Client::new();
 
-    match llm_engine_type {
+  match llm_engine_type {
+    "ollama" => {
+      // Use /api/show with POST
+      let endpoint = format!("{}/api/show", base_url);
+      let payload = serde_json::json!({ "name": model });
 
-        "ollama" => {
-          // Use /api/show with POST
-          let endpoint = format!("{}/api/show", base_url);
-          let payload = serde_json::json!({ "name": model });
+      let resp = client.post(&endpoint).json(&payload).send().await?;
 
-          let resp = client.post(&endpoint)
-            .json(&payload)
-            .send()
-            .await?;
+      if !resp.status().is_success() {
+        return Ok(false);
+      }
 
-          if !resp.status().is_success() {
-            return Ok(false);
-          }
+      let data: serde_json::Value = resp.json().await?;
+      if let Some(capabilities) = data.get("capabilities").and_then(|v| v.as_array()) {
+        // Check if "tools" is in capabilities
+        return Ok(capabilities.iter().any(|c| c.as_str() == Some("tools")));
+      }
 
-          let data: serde_json::Value = resp.json().await?;
-          if let Some(capabilities) = data.get("capabilities").and_then(|v| v.as_array()) {
-            // Check if "tools" is in capabilities
-            return Ok(capabilities.iter().any(|c| c.as_str() == Some("tools")));
-          }
+      Ok(false)
+    }
 
-          Ok(false)
-        }
-
-        "llama-server" => {
-          // Minimal test: send a prompt asking for JSON tool call
-          let payload = serde_json::json!({
-              "stream": false,
-              "messages": [
-                { "role": "system", "content": "You are a helpful assistant." },
-                { "role": "user", "content": "Respond ONLY with a JSON tool_call object for a calculator adding 1 + 1" }
-              ],
-              "max_tokens": 200,
-              "tools": [
-                {
-                  "type": "function",
-                  "function": {
-                    "name": "calculator",
-                    "description": "Perform a calculation",
-                    "parameters": {
-                      "type": "object",
-                      "properties":{
-                        "operation": {
-                          "type": "string",
-                          "description": "The operation to be calculated"
-                        }
-                      },
-                      "required":["operation"]
+    "llama-server" => {
+      // Minimal test: send a prompt asking for JSON tool call
+      let payload = serde_json::json!({
+          "stream": false,
+          "messages": [
+            { "role": "system", "content": "You are a helpful assistant." },
+            { "role": "user", "content": "Respond ONLY with a JSON tool_call object for a calculator adding 1 + 1" }
+          ],
+          "max_tokens": 200,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "calculator",
+                "description": "Perform a calculation",
+                "parameters": {
+                  "type": "object",
+                  "properties":{
+                    "operation": {
+                      "type": "string",
+                      "description": "The operation to be calculated"
                     }
-                  }
+                  },
+                  "required":["operation"]
                 }
-              ]
-          });
-
-          let endpoint = format!("{}/v1/chat/completions", base_url); // wrapper endpoint
-          let resp = client.post(&endpoint).json(&payload).send().await?;
-          let data: Value = resp.json().await?;
-
-          // crate::log::log("info", &format!("data: {:?}", data));
-
-          if let Some(choice) = data.get("choices").and_then(|c| c.get(0)) {
-            if let Some(message) = choice.get("message") {
-              if message.get("tool_calls")
-                .and_then(|arr| arr.as_array())
-                .map_or(false, |a| !a.is_empty())
-              {
-                return Ok(true);
               }
             }
-          }
+          ]
+      });
 
-          Ok(false)
+      let endpoint = format!("{}/v1/chat/completions", base_url); // wrapper endpoint
+      let resp = client.post(&endpoint).json(&payload).send().await?;
+      let data: Value = resp.json().await?;
+
+      // crate::log::log("info", &format!("data: {:?}", data));
+
+      if let Some(choice) = data.get("choices").and_then(|c| c.get(0)) {
+        if let Some(message) = choice.get("message") {
+          if message
+            .get("tool_calls")
+            .and_then(|arr| arr.as_array())
+            .map_or(false, |a| !a.is_empty())
+          {
+            return Ok(true);
+          }
         }
-        _ => Ok(false),
+      }
+
+      Ok(false)
     }
+    _ => Ok(false),
+  }
 }

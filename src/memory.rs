@@ -2,23 +2,23 @@
 //  Memory
 // ------------------------------------------------------------------
 
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::collections::{HashMap, HashSet};
+use anndists::dist::DistL2; // L2 distance implementation
 use hnsw_rs::prelude::*;
-use anndists::dist::DistL2;       // L2 distance implementation
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use serde_json::json;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter};
-use serde_json::Value;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // API
 // ------------------------------------------------------------------
 
 // Sample of LLM use
-// 
+//
 // Store memories:
 // ----------------------------------------------
 //   Construct the prompt for llm:
@@ -44,10 +44,9 @@ use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Predicate {
-  pub name:    String,
+  pub name: String,
   pub inverse: String,
 }
-
 
 impl Predicate {
   pub fn to_string(&self) -> String {
@@ -55,23 +54,20 @@ impl Predicate {
   }
 }
 
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KnowledgeUnit {
-  pub subject:   String,
+  pub subject: String,
   pub predicate: Predicate,
-  pub object:    String,
-  pub location:  Option<String>,
+  pub object: String,
+  pub location: Option<String>,
   pub timestamp: SystemTime,
 }
-
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VecKnowledgeUnit {
   pub embedding: Vec<f32>,
   pub knowledge: KnowledgeUnit,
 }
-
 
 pub struct Memory {
   hnsw: Hnsw<'static, f32, DistL2>,
@@ -80,21 +76,19 @@ pub struct Memory {
 }
 
 impl Memory {
-
   pub fn new(expected_elements: usize) -> Self {
     // HNSW parameters
     let max_nb_connection = 16;
     let max_layer = 16.min((expected_elements as f32).ln().trunc() as usize);
     let ef_construction = 200;
 
-    let hnsw: Hnsw<'static, f32, DistL2> = 
-      Hnsw::new(
-        max_nb_connection,
-        expected_elements,
-        max_layer,
-        ef_construction,
-        DistL2 {},
-      );
+    let hnsw: Hnsw<'static, f32, DistL2> = Hnsw::new(
+      max_nb_connection,
+      expected_elements,
+      max_layer,
+      ef_construction,
+      DistL2 {},
+    );
 
     Memory {
       hnsw,
@@ -116,7 +110,9 @@ impl Memory {
       let loc = unit.location.clone().unwrap_or("unknown location".into());
 
       // Convert SystemTime -> seconds since UNIX_EPOCH
-      let duration_since_epoch = unit.timestamp.duration_since(UNIX_EPOCH)
+      let duration_since_epoch = unit
+        .timestamp
+        .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
 
@@ -138,7 +134,6 @@ impl Memory {
     context_phrases.join("\n")
   }
 
-
   pub fn store(&mut self, unit: KnowledgeUnit) {
     let text = format!(
       "{} {} {}",
@@ -152,9 +147,9 @@ impl Memory {
 
     self.index_map.insert(
       id,
-      VecKnowledgeUnit { 
-        embedding: embedding.clone(), 
-        knowledge: unit 
+      VecKnowledgeUnit {
+        embedding: embedding.clone(),
+        knowledge: unit,
       },
     );
 
@@ -162,13 +157,12 @@ impl Memory {
     self.next_id += 1;
   }
 
-
   fn filter_units<'a>(
-      &'a self,
-      units: impl Iterator<Item=&'a VecKnowledgeUnit>,
-      location: Option<&str>,
-      start: Option<SystemTime>,
-      end: Option<SystemTime>,
+    &'a self,
+    units: impl Iterator<Item = &'a VecKnowledgeUnit>,
+    location: Option<&str>,
+    start: Option<SystemTime>,
+    end: Option<SystemTime>,
   ) -> Vec<KnowledgeUnit> {
     units
       .filter(|v| {
@@ -190,7 +184,6 @@ impl Memory {
       .collect()
   }
 
-
   pub fn get_by_subject(
     &self,
     subject: &str,
@@ -198,11 +191,12 @@ impl Memory {
     start: Option<SystemTime>,
     end: Option<SystemTime>,
   ) -> Vec<KnowledgeUnit> {
-    let units = self.index_map.values()
+    let units = self
+      .index_map
+      .values()
       .filter(move |v| v.knowledge.subject == subject);
     self.filter_units(units, location, start, end)
   }
-
 
   pub fn get_by_predicate(
     &self,
@@ -211,11 +205,12 @@ impl Memory {
     start: Option<SystemTime>,
     end: Option<SystemTime>,
   ) -> Vec<KnowledgeUnit> {
-    let units = self.index_map.values()
+    let units = self
+      .index_map
+      .values()
       .filter(move |v| v.knowledge.predicate.name == predicate_name);
     self.filter_units(units, location, start, end)
   }
-
 
   pub fn get_by_object(
     &self,
@@ -224,11 +219,12 @@ impl Memory {
     start: Option<SystemTime>,
     end: Option<SystemTime>,
   ) -> Vec<KnowledgeUnit> {
-    let units = self.index_map.values()
+    let units = self
+      .index_map
+      .values()
       .filter(move |v| v.knowledge.object == object);
     self.filter_units(units, location, start, end)
   }
-
 
   pub fn get_by_location(
     &self,
@@ -240,16 +236,15 @@ impl Memory {
     self.filter_units(units, Some(location), start, end)
   }
 
-
   pub fn query(&self, query: &str, k: usize, ef_search: usize) -> Vec<KnowledgeUnit> {
     let q_embed = Memory::embed_text(query);
     let neighbors = self.hnsw.search(&q_embed, k, ef_search);
 
-    neighbors.into_iter()
+    neighbors
+      .into_iter()
       .map(|neigh| self.index_map[&neigh.d_id].knowledge.clone())
       .collect()
   }
-
 
   pub fn to_json_graph(&self) -> serde_json::Value {
     let mut nodes_set = HashSet::new();
@@ -285,10 +280,13 @@ impl Memory {
     json!({ "nodes": nodes, "edges": edges })
   }
 
-
   /// Save memory to disk (both embeddings & knowledge units)
   pub fn save_to_file(&self, path: &str) -> anyhow::Result<()> {
-    let file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+    let file = OpenOptions::new()
+      .write(true)
+      .create(true)
+      .truncate(true)
+      .open(path)?;
     let writer = BufWriter::new(file);
 
     // Save all index_map entries + next_id
@@ -301,14 +299,14 @@ impl Memory {
     Ok(())
   }
 
-
   /// Load memory from disk, reconstructing HNSW graph
   pub fn load_from_file(path: &str) -> anyhow::Result<Self> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let data: Value = serde_json::from_reader(reader)?;
 
-    let units_map: HashMap<usize, VecKnowledgeUnit> = serde_json::from_value(data["units"].clone())?;
+    let units_map: HashMap<usize, VecKnowledgeUnit> =
+      serde_json::from_value(data["units"].clone())?;
     let next_id = data["next_id"].as_u64().unwrap_or(0) as usize;
     let expected_elements = units_map.len().max(1);
 
@@ -336,20 +334,19 @@ impl Memory {
     })
   }
 
-
   pub fn autosave(self, path: String, interval_sec: u64) -> JoinHandle<()>
-    where Self: Send + 'static,
-    {
-      thread::spawn(move || {
-        loop {
-          if let Err(e) = self.save_to_file(&path) {
-            eprintln!("Failed to autosave memory: {:?}", e);
-          }
-          thread::sleep(Duration::from_secs(interval_sec));
+  where
+    Self: Send + 'static,
+  {
+    thread::spawn(move || {
+      loop {
+        if let Err(e) = self.save_to_file(&path) {
+          eprintln!("Failed to autosave memory: {:?}", e);
         }
-      })
-    }
-
+        thread::sleep(Duration::from_secs(interval_sec));
+      }
+    })
+  }
 }
 
 // PRIVATE
@@ -357,50 +354,50 @@ impl Memory {
 
 static AVAILABLE_PREDICATES: &[(&str, &str)] = &[
   // predicate          // inverse
-  ("believed",          "was believed by"),
-  ("assumed",           "was assumed by"),
-  ("made",              "was made by"),
-  ("saw",               "was seen by"),
-  ("said to",           "was told by"),
-  ("failed at",         "was a failure of"),
-  ("wanted",            "was wanted by"),
-  ("thought",           "was thought of by"),
-  ("asked about",       "was asked about by"),
-  ("planned",           "was planned"),
-  ("requested",         "was requested by"),
-  ("ordered",           "was ordered by"),
-  ("complained about",  "received a complaint from"),
-  ("ocurred at",        "was created by"),
-  ("created",           "was created by"),
-  ("met with",          "was met by"),
-  ("destroyed",         "was destroyed by"),
-  ("modified",          "was modified by"),
-  ("examined",          "was examined by"),
-  ("inspected",         "was inspected by"),
-  ("evaluated",         "was evaluated by"),
-  ("tested",            "was tested by"),
-  ("analyzed",          "was analyzed by"),
-  ("calculated",        "was calculated by"),
-  ("estimated",         "was estimated by"),
-  ("predicted",         "was predicted by"),
-  ("performed",         "was performed by"),
-  ("executed",          "was executed by"),
-  ("completed",         "was completed by"),
-  ("succeeded",         "was succeeded by"),
-  ("confirmed",         "was confirmed by"),
-  ("approved",          "was approved by"),
-  ("denied",            "was denied by"),
-  ("received",          "was received by"),
-  ("sent",              "was sent by"),
-  ("delivered",         "was delivered by"),
-  ("communicated",      "was communicated to"),
-  ("informed",          "was informed by"),
-  ("informed about",    "was informed about by"),
-  ("questioned",        "was questioned by"),
-  ("inquired",          "was inquired by"),
-  ("participated in",   "was participated in by"),
-  ("attended",          "was attended by"),
-  ("presented",         "was presented by"),
-  ("displayed",         "was displayed by"),
-  ("demonstrated",      "was demonstrated by"),
+  ("believed", "was believed by"),
+  ("assumed", "was assumed by"),
+  ("made", "was made by"),
+  ("saw", "was seen by"),
+  ("said to", "was told by"),
+  ("failed at", "was a failure of"),
+  ("wanted", "was wanted by"),
+  ("thought", "was thought of by"),
+  ("asked about", "was asked about by"),
+  ("planned", "was planned"),
+  ("requested", "was requested by"),
+  ("ordered", "was ordered by"),
+  ("complained about", "received a complaint from"),
+  ("ocurred at", "was created by"),
+  ("created", "was created by"),
+  ("met with", "was met by"),
+  ("destroyed", "was destroyed by"),
+  ("modified", "was modified by"),
+  ("examined", "was examined by"),
+  ("inspected", "was inspected by"),
+  ("evaluated", "was evaluated by"),
+  ("tested", "was tested by"),
+  ("analyzed", "was analyzed by"),
+  ("calculated", "was calculated by"),
+  ("estimated", "was estimated by"),
+  ("predicted", "was predicted by"),
+  ("performed", "was performed by"),
+  ("executed", "was executed by"),
+  ("completed", "was completed by"),
+  ("succeeded", "was succeeded by"),
+  ("confirmed", "was confirmed by"),
+  ("approved", "was approved by"),
+  ("denied", "was denied by"),
+  ("received", "was received by"),
+  ("sent", "was sent by"),
+  ("delivered", "was delivered by"),
+  ("communicated", "was communicated to"),
+  ("informed", "was informed by"),
+  ("informed about", "was informed about by"),
+  ("questioned", "was questioned by"),
+  ("inquired", "was inquired by"),
+  ("participated in", "was participated in by"),
+  ("attended", "was attended by"),
+  ("presented", "was presented by"),
+  ("displayed", "was displayed by"),
+  ("demonstrated", "was demonstrated by"),
 ];

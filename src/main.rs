@@ -13,15 +13,15 @@ mod conversation;
 mod keyboard;
 mod llm;
 mod log;
+mod memory;
 mod playback;
 mod record;
 mod state;
 mod stt;
+mod tools;
 mod tts;
 mod ui;
 mod util;
-mod memory;
-mod tools;
 
 static START_INSTANT: OnceLock<Instant> = OnceLock::new();
 
@@ -63,13 +63,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let _ = START_INSTANT.get_or_init(Instant::now);
   let args = crate::config::Args::parse();
 
-    // Determine base URL for LLM
-    let base_url = if args.llm == "ollama" {
-        args.ollama_url.clone()
-    } else {
-        args.llama_server_url.clone()
-    };
-    
+  // Determine base URL for LLM
+  let base_url = if args.llm == "ollama" {
+    args.ollama_url.clone()
+  } else {
+    args.llama_server_url.clone()
+  };
 
   if args.list_voices {
     tts::print_voices();
@@ -93,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   crate::llm::TOOLS_SUPPORTED.set(tools_supported).ok();
   log::log(
     "info",
-    &format!("Model supports tools: {}", tools_supported)
+    &format!("Model supports tools: {}", tools_supported),
   );
 
   let vad_thresh: f32 = args.sound_threshold_peak;

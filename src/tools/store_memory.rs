@@ -2,12 +2,12 @@
 //  Tool: Store memory
 // ------------------------------------------------------------------
 
-use serde_json::json;
-use serde_json::Value;
-use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 use super::Tool;
 use crate::memory::{KnowledgeUnit, Memory, Predicate};
+use serde_json::Value;
+use serde_json::json;
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // API
 // ------------------------------------------------------------------
@@ -28,7 +28,10 @@ impl Tool for StoreMemoryTool {
     "store_memory"
   }
 
-  fn handle(&self, tool_call_args: &Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+  fn handle(
+    &self,
+    tool_call_args: &Value,
+  ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Extract required fields
     let subject = tool_call_args
       .get("subject")

@@ -2,14 +2,14 @@
 //  Conversation
 // ------------------------------------------------------------------
 
-use crate::state::GLOBAL_STATE;
 use crate::START_INSTANT;
-use crossbeam_channel::{select, Receiver, Sender};
+use crate::state::GLOBAL_STATE;
+use crossbeam_channel::{Receiver, Sender, select};
 use std::cell::Cell;
 use std::sync::OnceLock;
 use std::sync::{
-  atomic::{AtomicU64, Ordering},
   Arc,
+  atomic::{AtomicU64, Ordering},
 };
 
 static WHISPER_CTX: OnceLock<whisper_rs::WhisperContext> = OnceLock::new();
@@ -238,20 +238,12 @@ impl PhraseSpeaker {
     self.buf.push_str(s);
     // cap phrases by new lines or dots
     let trigger = self.buf.contains('\n') || self.buf.ends_with('.');
-    if trigger {
-      self.flush()
-    } else {
-      None
-    }
+    if trigger { self.flush() } else { None }
   }
   fn flush(&mut self) -> Option<String> {
     let out = self.buf.trim().to_string();
     self.buf.clear();
-    if out.is_empty() {
-      None
-    } else {
-      Some(out)
-    }
+    if out.is_empty() { None } else { Some(out) }
   }
 }
 
@@ -259,10 +251,7 @@ thread_local! {
   static IN_CODE_BLOCK: Cell<bool> = Cell::new(false);
 }
 
-fn handle_interruption(
-  interrupt_counter: &Arc<AtomicU64>,
-  current: u64,
-) -> bool {
+fn handle_interruption(interrupt_counter: &Arc<AtomicU64>, current: u64) -> bool {
   if interrupt_counter.load(Ordering::SeqCst) != current {
     true
   } else {

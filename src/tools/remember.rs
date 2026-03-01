@@ -4,8 +4,8 @@
 
 use super::Tool;
 use crate::memory::Memory;
-use serde_json::json;
 use serde_json::Value;
+use serde_json::json;
 use std::path::Path;
 
 // API
@@ -27,7 +27,10 @@ impl Tool for RememberTool {
     "remember"
   }
 
-  fn handle(&self, tool_call_args: &Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+  fn handle(
+    &self,
+    tool_call_args: &Value,
+  ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Validation handled in tools.rs
     // Extract query string
     let query = tool_call_args
