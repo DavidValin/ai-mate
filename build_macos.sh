@@ -116,6 +116,9 @@ export CARGO_PROFILE_RELEASE_INCREMENTAL=false
 
 echo "== Building macOS (${arch}) with whisper-metal =="
 
+export MACOSX_DEPLOYMENT_TARGET=11.0
+export RUSTFLAGS="-C link-args=-mmacosx-version-min=10.13"
+
 CARGO_TARGET_DIR="${PROJECT_ROOT}/target-cross/macos-${arch}" \
 cargo build --release \
   --features "${FEATURES}"

@@ -312,7 +312,7 @@ ENV OPENSSL_INCLUDE_DIR=/usr/local/include
 # ----------------------------------------------------------
 # Build OpenMP for musl (amd64)
 # ----------------------------------------------------------
-ENV OPENMP_DIR=/tmp/openmp
+ENV OPENMP_DIR=/openmp
 ENV OPENMP_PREFIX=/usr/local
 
 ENV CFLAGS="--sysroot=/opt/x86_64-linux-musl-cross/x86_64-linux-musl -fopenmp"
@@ -327,16 +327,16 @@ RUN wget -O llvm-project-22.1.0.src.tar.xz "$LLVM_SRC_URL" \
 # Set correct OpenMP source paths
 WORKDIR $OPENMP_DIR/llvm-project-22.1.0.src/openmp
 
-RUN mkdir -p /tmp/openmp/build
+RUN mkdir -p /openmp/build
 
 RUN cmake -S $OPENMP_DIR/llvm-project-22.1.0.src/openmp \
-  -B /tmp/openmp/build \
+  -B /openmp/build \
   -DCMAKE_INSTALL_PREFIX=$OPENMP_PREFIX \
   -DLIBOMP_ENABLE_SHARED=OFF \
   -DLIBOMP_ENABLE_STATIC=ON \
   -DCMAKE_BUILD_TYPE=Release
 
-RUN cmake --build /tmp/openmp/build --parallel $(nproc) --target install
+RUN cmake --build /openmp/build --parallel $(nproc) --target install
 
 RUN echo "✔ OpenMP static library built!" \
  && echo "Library: $OPENMP_PREFIX/lib/libomp.a" \
@@ -345,9 +345,9 @@ RUN echo "✔ OpenMP static library built!" \
 # ----------------------------------------------------------
 # Build static OpenBLAS for musl (amd64)
 # ----------------------------------------------------------
-RUN git clone --depth 1 https://github.com/xianyi/OpenBLAS.git /tmp/openblas
+RUN git clone --depth 1 https://github.com/xianyi/OpenBLAS.git /openblas
 
-RUN cd /tmp/openblas && \
+RUN cd /openblas && \
   set -eux; \
   make -j$(nproc) \
     CFLAGS="--sysroot=/opt/x86_64-linux-musl-cross/x86_64-linux-musl -fopenmp" \
@@ -363,9 +363,9 @@ RUN cd /tmp/openblas && \
     2>&1 | tee /tmp/openblas_build.log
 
 RUN set -eux; \
-  cd /tmp/openblas && \
+  cd /openblas && \
   make install PREFIX=/usr/local STATIC_ONLY=1 NO_SHARED=1 && \
-  cd / && rm -rf /tmp/openblas
+  cd / && rm -rf /openblas
 
 ENV OPENBLAS_PATH=/usr/local
 ENV BLAS_LIBRARIES=/usr/local/lib/libopenblas.a
@@ -375,8 +375,8 @@ ENV BLAS_INCLUDE_DIRS=/usr/local/include
 # Build espeak-ng musl version (AMD64)
 # ----------------------------------------------------------
 RUN set -eux; \
-    git clone --depth 1 https://github.com/espeak-ng/espeak-ng.git /work/espeak-ng; \
-    cd /work/espeak-ng; \
+    git clone --depth 1 https://github.com/espeak-ng/espeak-ng.git /espeak-ng; \
+    cd /espeak-ng; \
     mkdir build && cd build
 
 RUN set -eux; \
@@ -404,11 +404,11 @@ ENV ESPEAK_NG_DIR="/usr/local/lib"
 # Build static whisper.cpp + ggml (linked to OpenBLAS)
 # --------------------------------------------------
 
-RUN git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git /tmp/whisper.cpp
+RUN git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git /whisper.cpp
 
 RUN set -eux; \
-    mkdir -p /tmp/whisper.cpp/build; \
-    cd /tmp/whisper.cpp/build; \
+    mkdir -p /whisper.cpp/build; \
+    cd /whisper.cpp/build; \
     cmake .. \
         -DBUILD_SHARED_LIBS=OFF \
         -DGGML_OPENMP=ON \
@@ -427,28 +427,28 @@ ENV WHISPER_PREBUILT_LIB=/usr/local/lib
 # --------------------------------------------------
 # Build protobuf musl version (AMD64 musl)
 # --------------------------------------------------
-# RUN mkdir -p /tmp/protoc
-# WORKDIR /tmp/protoc
-# RUN set -eux; \
-#     git clone -b v3.21.12 https://github.com/protocolbuffers/protobuf.git; \
-#     cd protobuf; \
-#     mkdir build && cd build
-# RUN set -eux; \
-#     cmake ../cmake \
-#       -DCMAKE_EXE_LINKER_FLAGS="-static" \
-#       -DBUILD_SHARED_LIBS=OFF \
-#       -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF
-# RUN set -eux; \
-#     make -j$(nproc); \
-#     make install DESTDIR=/tmp/protoc/protobuf/install
-# export PATH=/tmp/protoc/build:$PATH
+RUN mkdir -p /protoc
+WORKDIR /protoc
+
+RUN set -eux; \
+    git clone -b v3.21.12 https://github.com/protocolbuffers/protobuf.git; \
+    cd protobuf; \
+    mkdir build && cd build; \
+    cmake . \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DCMAKE_EXE_LINKER_FLAGS="-static" \
+      -DCMAKE_BUILD_TYPE=Release \
+      -Dprotobuf_BUILD_TESTS=OFF; \
+    make -j$(nproc); \
+    make install
 
 # -----------------------------
 # Build ONNX Runtime for this variant (AMD64 musl)
 # -----------------------------
 
-ENV ONNX_DIR=/work/deps/onnxruntime
-ENV ONNX_SRC=/tmp/onnxruntime
+ENV ONNX_DIR=/onnxruntime
+ENV ONNX_SRC=/onnxruntime-src
 
 RUN set -eux; \
     mkdir -p "$ONNX_DIR"; \
@@ -476,23 +476,103 @@ RUN set -eux; \
       -DCMAKE_C_COMPILER=$CC \
       -DCMAKE_CXX_COMPILER=$CXX \
       -DCMAKE_LINKER=$LD \
-      -DCMAKE_BUILD_TYPE=Release \
+      -CMAKE_LDFLAGS="-lgfortran -lm -lpthread -lquadmath -lgomp -lpthread" \
       -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \
-      -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-      -Donnxruntime_BUILD_SHARED_LIB=OFF \
-      -Donnxruntime_USE_CUDA=$WITH_CUDA \
-      -DBUILD_TESTING=OFF \
-      -Donnxruntime_BUILD_UNIT_TESTS=OFF \
+      -Donnxruntime_ENABLE_EXTERNAL_CUSTOM_OP_SCHEMAS=OFF \
       -Donnxruntime_RUN_ONNX_TESTS=OFF \
+      -Donnxruntime_GENERATE_TEST_REPORTS=ON \
+      -DPython_EXECUTABLE=/usr/bin/python3 \
+      -Donnxruntime_USE_VCPKG=OFF \
+      -Donnxruntime_USE_MIMALLOC=OFF \
+      -Donnxruntime_ENABLE_PYTHON=OFF \
+      -Donnxruntime_BUILD_CSHARP=OFF \
+      -Donnxruntime_BUILD_JAVA=OFF \
+      -Donnxruntime_BUILD_NODEJS=OFF \
+      -Donnxruntime_BUILD_OBJC=OFF \
+      -Donnxruntime_BUILD_SHARED_LIB=OFF \
+      -Donnxruntime_BUILD_APPLE_FRAMEWORK=OFF \
+      -Donnxruntime_USE_DNNL=OFF \
+      -Donnxruntime_USE_NNAPI_BUILTIN=OFF \
+      -Donnxruntime_USE_VSINPU=OFF \
+      -Donnxruntime_USE_RKNPU=OFF \
+      -Donnxruntime_ENABLE_MICROSOFT_INTERNAL=OFF \
+      -Donnxruntime_USE_VITISAI=OFF \
+      -Donnxruntime_USE_TENSORRT=OFF \
+      -Donnxruntime_USE_NV=OFF \
+      -Donnxruntime_USE_TENSORRT_BUILTIN_PARSER=ON \
+      -Donnxruntime_USE_TENSORRT_INTERFACE=OFF \
+      -Donnxruntime_USE_CUDA_INTERFACE=OFF \
+      -Donnxruntime_USE_NV_INTERFACE=OFF \
+      -Donnxruntime_USE_OPENVINO_INTERFACE=OFF \
+      -Donnxruntime_USE_VITISAI_INTERFACE=OFF \
+      -Donnxruntime_USE_QNN_INTERFACE=OFF \
+      -Donnxruntime_USE_MIGRAPHX_INTERFACE=OFF \
+      -Donnxruntime_USE_MIGRAPHX=OFF \
+      -Donnxruntime_DISABLE_CONTRIB_OPS=OFF \
+      -Donnxruntime_DISABLE_ML_OPS=OFF \
+      -Donnxruntime_DISABLE_GENERATION_OPS=OFF \
+      -Donnxruntime_DISABLE_RTTI=OFF \
+      -Donnxruntime_DISABLE_EXCEPTIONS=OFF \
+      -Donnxruntime_MINIMAL_BUILD=OFF \
+      -Donnxruntime_EXTENDED_MINIMAL_BUILD=OFF \
+      -Donnxruntime_MINIMAL_BUILD_CUSTOM_OPS=OFF \
+      -Donnxruntime_REDUCED_OPS_BUILD=OFF \
+      -Donnxruntime_CLIENT_PACKAGE_BUILD=OFF \
+      -Donnxruntime_BUILD_MS_EXPERIMENTAL_OPS=OFF \
+      -Donnxruntime_ENABLE_LTO=OFF \
+      -Donnxruntime_USE_ACL=OFF \
+      -Donnxruntime_USE_ARMNN=OFF \
+      -Donnxruntime_ARMNN_RELU_USE_CPU=ON \
+      -Donnxruntime_ARMNN_BN_USE_CPU=ON \
+      -Donnxruntime_USE_JSEP=OFF \
+      -Donnxruntime_USE_WEBGPU=OFF \
+      -Donnxruntime_USE_EXTERNAL_DAWN=OFF \
+      -Donnxruntime_WGSL_TEMPLATE=static \
+      -Donnxruntime_ENABLE_NVTX_PROFILE=OFF \
+      -Donnxruntime_ENABLE_TRAINING=OFF \
+      -Donnxruntime_ENABLE_TRAINING_OPS=OFF \
+      -Donnxruntime_ENABLE_TRAINING_APIS=OFF \
+      -Donnxruntime_ENABLE_CPU_FP16_OPS=OFF \
+      -Donnxruntime_USE_NCCL=OFF \
+      -Donnxruntime_BUILD_BENCHMARKS=OFF \
+      -Donnxruntime_GCOV_COVERAGE=OFF \
+      -Donnxruntime_ENABLE_MEMORY_PROFILE=OFF \
+      -Donnxruntime_ENABLE_CUDA_LINE_NUMBER_INFO=OFF \
+      -Donnxruntime_USE_CUDA_NHWC_OPS=OFF \
+      -Donnxruntime_BUILD_WEBASSEMBLY_STATIC_LIB=OFF \
+      -Donnxruntime_ENABLE_WEBASSEMBLY_EXCEPTION_CATCHING=ON \
+      -Donnxruntime_ENABLE_WEBASSEMBLY_API_EXCEPTION_CATCHING=OFF \
+      -Donnxruntime_ENABLE_WEBASSEMBLY_EXCEPTION_THROWING=ON \
+      -Donnxruntime_WEBASSEMBLY_RUN_TESTS_IN_BROWSER=OFF \
+      -Donnxruntime_ENABLE_WEBASSEMBLY_JSPI=OFF \
+      -Donnxruntime_ENABLE_WEBASSEMBLY_THREADS=OFF \
+      -Donnxruntime_ENABLE_WEBASSEMBLY_DEBUG_INFO=OFF \
+      -Donnxruntime_ENABLE_WEBASSEMBLY_PROFILING=OFF \
+      -Donnxruntime_ENABLE_LAZY_TENSOR=OFF \
+      -Donnxruntime_ENABLE_CUDA_PROFILING=OFF \
       -Donnxruntime_USE_XNNPACK=OFF \
-      -Donnxruntime_USE_AVX=OFF \
-      -Donnxruntime_USE_AVX2=OFF \
-      -Donnxruntime_USE_DML=OFF \
-      -Donnxruntime_USE_AVX512=OFF; \
+      -Donnxruntime_USE_WEBNN=OFF \
+      -Donnxruntime_USE_CANN=OFF \
+      -Donnxruntime_DISABLE_FLOAT8_TYPES=OFF \
+      -Donnxruntime_DISABLE_FLOAT4_TYPES=OFF \
+      -Donnxruntime_DISABLE_SPARSE_TENSORS=OFF \
+      -Donnxruntime_DISABLE_OPTIONAL_TYPE=OFF \
+      -Donnxruntime_DISABLE_STRING_TYPE=OFF \
+      -Donnxruntime_CUDA_MINIMAL=OFF \
+      -Donnxruntime_USE_CUDA=$WITH_CUDA \
+      -Donnxruntime_USE_KLEIDIAI=ON \
+      -Donnxruntime_USE_SVE=ON \
+      -DCMAKE_INSTALL_PREFIX=$ONNX_DIR \
+      -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+      -DCMAKE_BUILD_TYPE=Release; \
+      -Donnxruntime_USE_SYSTEM_PROTOBUF=ON \
+      -DProtobuf_INCLUDE_DIR=/usr/local/include \
+      -DProtobuf_LIBRARIES=/usr/local/lib/libprotobuf.a \
+      -DProtobuf_PROTOC_EXECUTABLE=/usr/local/bin/protoc; \
     cmake --build $ONNX_DIR --config Release
 
 ENV ORT_STRATEGY=system
-ENV ORT_LIB_LOCATION=/work/deps/onnxruntime
+ENV ORT_LIB_LOCATION=$ONNX_DIR
 ENV ORT_DEBUG=1
 
 WORKDIR /work
