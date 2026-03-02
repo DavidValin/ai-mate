@@ -4,9 +4,10 @@
 
 use super::Tool;
 use crate::memory::Memory;
-use serde_json::Value;
+use crate::util;
 use serde_json::json;
-use std::path::Path;
+use serde_json::Value;
+// use std::path::Path;
 
 // API
 // ------------------------------------------------------------------
@@ -39,12 +40,9 @@ impl Tool for RememberTool {
       .ok_or("Missing or invalid 'query'")?;
 
     // Load or create memory
-    let path = "memory.json";
-    let memory = if Path::new(path).exists() {
-      Memory::load_from_file(path)?
-    } else {
-      Memory::new(1000)
-    };
+    let memory_path = crate::memory::ensure_memory_path();
+    let path = memory_path.as_str();
+    let memory = crate::memory::ensure_memory_file(path)?;
 
     // Perform query
     let top_k = 5;

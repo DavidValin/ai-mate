@@ -62,11 +62,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
   let _ = START_INSTANT.get_or_init(Instant::now);
   let args = crate::config::Args::parse();
+    let memory_path = memory::ensure_memory_path();
 
 if args.get_memories {
     use crate::memory::Memory;
     use std::path::Path;
-    let path = "memory.json";
+    let path = memory_path.as_str();
     if Path::new(path).exists() {
         let memory = Memory::load_from_file(path).expect("failed to load memory");
         for v in memory.index_map.values() {
@@ -84,7 +85,7 @@ if args.get_memories {
 if let Some(subj) = args.get_memories_by_subject {
     use crate::memory::Memory;
     use std::path::Path;
-    let path = "memory.json";
+    let path = memory_path.as_str();
     if !Path::new(path).exists() {
         eprintln!("No memory file found");
         process::exit(1);
@@ -102,7 +103,7 @@ if let Some(subj) = args.get_memories_by_subject {
 if let Some(pred) = args.get_memories_by_predicate {
     use crate::memory::Memory;
     use std::path::Path;
-    let path = "memory.json";
+    let path = memory_path.as_str();
     if !Path::new(path).exists() {
         eprintln!("No memory file found");
         process::exit(1);
@@ -120,7 +121,7 @@ if let Some(pred) = args.get_memories_by_predicate {
 if let Some(obj) = args.get_memories_by_object {
     use crate::memory::Memory;
     use std::path::Path;
-    let path = "memory.json";
+    let path = memory_path.as_str();
     if !Path::new(path).exists() {
         eprintln!("No memory file found");
         process::exit(1);
@@ -138,7 +139,7 @@ if let Some(obj) = args.get_memories_by_object {
 if let Some(loc) = args.get_memories_by_location {
     use crate::memory::Memory;
     use std::path::Path;
-    let path = "memory.json";
+    let path = memory_path.as_str();
     if !Path::new(path).exists() {
         eprintln!("No memory file found");
         process::exit(1);
@@ -156,7 +157,7 @@ if let Some(loc) = args.get_memories_by_location {
 if let Some(query) = args.query_memory {
     use crate::memory::Memory;
     use std::path::Path;
-    let path = "memory.json";
+    let path = memory_path.as_str();
     if !Path::new(path).exists() {
         eprintln!("No memory file found");
         process::exit(1);

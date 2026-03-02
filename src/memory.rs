@@ -13,6 +13,7 @@ use sled;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 // File and BufReader/BufWriter removed
+use crate::util;
 use std::sync::OnceLock;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -390,6 +391,23 @@ impl Memory {
 
 // PRIVATE
 // ------------------------------------------------------------------
+
+pub fn ensure_memory_path() -> String {
+  let home = util::get_user_home_path().expect("Failed to get home dir");
+  let dir = home.join(".ai-mate/agents/default");
+  std::fs::create_dir_all(&dir).expect("Failed to create memory directory");
+  dir.join("memory").to_string_lossy().into_owned()
+}
+
+use std::path::Path;
+
+pub fn ensure_memory_file(path: &str) -> anyhow::Result<Memory> {
+  if Path::new(path).exists() {
+    Memory::load_from_file(path)
+  } else {
+    Ok(Memory::new(1000))
+  }
+}
 
 static AVAILABLE_PREDICATES: &[(&str, &str)] = &[
   // predicate          // inverse

@@ -4,9 +4,10 @@
 
 use super::Tool;
 use crate::memory::{KnowledgeUnit, Memory, Predicate};
-use serde_json::Value;
+use crate::util;
 use serde_json::json;
-use std::path::Path;
+use serde_json::Value;
+// use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // API
@@ -71,12 +72,9 @@ impl Tool for StoreMemoryTool {
     };
 
     // Load or create memory
-    let path = "memory.json";
-    let mut memory = if Path::new(path).exists() {
-      Memory::load_from_file(path)?
-    } else {
-      Memory::new(1000)
-    };
+    let memory_path = crate::memory::ensure_memory_path();
+    let path = memory_path.as_str();
+    let mut memory = crate::memory::ensure_memory_file(path)?;
 
     // Store unit and persist
     memory.store(unit);
