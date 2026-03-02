@@ -3,16 +3,19 @@
 // ------------------------------------------------------------------
 
 use anndists::dist::DistL2; // L2 distance implementation
+use crossbeam_channel::Sender;
 use hnsw_rs::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use serde_json::json;
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter};
+use std::sync::OnceLock;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+pub static TX_UI: OnceLock<Sender<String>> = OnceLock::new();
 
 // API
 // ------------------------------------------------------------------
@@ -79,7 +82,7 @@ impl Memory {
   pub fn new(expected_elements: usize) -> Self {
     // HNSW parameters
     let max_nb_connection = 16;
-    let max_layer = 16.min((expected_elements as f32).ln().trunc() as usize);
+    let max_layer = std::cmp::max(1, 16.min((expected_elements as f32).ln().trunc() as usize));
     let ef_construction = 200;
 
     let hnsw: Hnsw<'static, f32, DistL2> = Hnsw::new(
@@ -145,16 +148,27 @@ impl Memory {
     let embedding = Memory::embed_text(&text);
     let id = self.next_id;
 
+    let unit_clone = unit.clone();
     self.index_map.insert(
       id,
       VecKnowledgeUnit {
         embedding: embedding.clone(),
-        knowledge: unit,
+        knowledge: unit_clone,
       },
     );
 
     self.hnsw.insert((&embedding, id));
     self.next_id += 1;
+    // Send UI notification
+    if let Some(sender) = TX_UI.get() {
+      // Send UI notification using a clone to avoid moving the original unit
+      let _ = sender.send(format!(
+        "line|🧠 Memory saved: {} {} {}",
+        unit.subject.clone(),
+        unit.object.clone(),
+        unit.predicate.name.clone()
+      ));
+    }
   }
 
   fn filter_units<'a>(
@@ -312,7 +326,7 @@ impl Memory {
 
     // Rebuild HNSW
     let max_nb_connection = 16;
-    let max_layer = 16.min((expected_elements as f32).ln().trunc() as usize);
+    let max_layer = std::cmp::max(1, 16.min((expected_elements as f32).ln().trunc() as usize));
     let ef_construction = 200;
 
     let hnsw: Hnsw<'static, f32, DistL2> = Hnsw::new(
@@ -338,13 +352,11 @@ impl Memory {
   where
     Self: Send + 'static,
   {
-    thread::spawn(move || {
-      loop {
-        if let Err(e) = self.save_to_file(&path) {
-          eprintln!("Failed to autosave memory: {:?}", e);
-        }
-        thread::sleep(Duration::from_secs(interval_sec));
+    thread::spawn(move || loop {
+      if let Err(e) = self.save_to_file(&path) {
+        eprintln!("Failed to autosave memory: {:?}", e);
       }
+      thread::sleep(Duration::from_secs(interval_sec));
     })
   }
 }
@@ -358,6 +370,7 @@ static AVAILABLE_PREDICATES: &[(&str, &str)] = &[
   ("assumed", "was assumed by"),
   ("made", "was made by"),
   ("saw", "was seen by"),
+  ("said", "was said by"),
   ("said to", "was told by"),
   ("failed at", "was a failure of"),
   ("wanted", "was wanted by"),

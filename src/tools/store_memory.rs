@@ -93,12 +93,13 @@ impl Tool for StoreMemoryTool {
       "type": "function",
       "function": {
         "name": "store_memory",
-        "description": "Stores a memory in form of 'Subject -> Predicate -> Object' at an optional physical location in a specific time.",
+        "description": "Use this tool to store relevant memories from the latest user message that can be useful in the future. Use accurate Subject and Object and pick the right Predicate from the allowed values.",
         "parameters": {
           "type": "object",
           "properties": {
             "subject": {
-              "type": "string"
+              "type": "string",
+              "description": "A noun. This is the subject of the memory."
             },
             "predicate": {
               "type": "string",
@@ -107,6 +108,7 @@ impl Tool for StoreMemoryTool {
                 "assumed",
                 "made",
                 "saw",
+                "said",
                 "said to",
                 "failed at",
                 "wanted",
@@ -152,13 +154,16 @@ impl Tool for StoreMemoryTool {
               ]
             },
             "object": {
-              "type": "string"
+              "type": "string",
+              "description": "A noun. This is the object to which the predicate applies to."
             },
             "location": {
-              "type": "string"
+              "type": "string",
+              "description": "optional location if its specified or inferred from the message"
             },
             "timestamp": {
-              "type": "integer"
+              "type": "integer",
+              "description": "optional timestamp if its specified or inferred from the message"
             }
           },
           "required": [

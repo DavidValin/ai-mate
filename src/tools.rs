@@ -22,26 +22,7 @@ pub trait Tool {
 }
 
 pub fn get_available_tools() -> Result<Vec<Value>, Box<dyn std::error::Error + Send + Sync>> {
-  let remember_schema = RememberTool::json_schema()?;
-  let store_schema = StoreMemoryTool::json_schema()?;
-  Ok(vec![
-    json!({
-        "type": "function",
-        "function": {
-            "name": "remember",
-            "description": "",
-            "parameters": remember_schema
-        }
-    }),
-    json!({
-        "type": "function",
-        "function": {
-            "name": "store_memory",
-            "description": "",
-            "parameters": store_schema
-        }
-    }),
-  ])
+  Ok(vec![StoreMemoryTool::json_schema()?])
 }
 
 pub fn validate_tool_call(
@@ -49,7 +30,7 @@ pub fn validate_tool_call(
   schema: &Value,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // Locate parameters section: function.parameters
-  let schema_params = schema.get("function").and_then(|f| f.get("parameters"));
+  let schema_params = schema.get("parameters");
   if let Some(schema_params) = schema_params {
     // required fields
     if let Some(required) = schema_params.get("required").and_then(|v| v.as_array()) {
@@ -95,6 +76,8 @@ pub fn validate_tool_call(
 pub fn handle_tool_call(
   call_json: &str,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+  crate::log::log("debug", &format!("handling tool: {}", call_json));
+
   let v: Value = serde_json::from_str(call_json)?;
   let name = v
     .get("name")
@@ -107,36 +90,14 @@ pub fn handle_tool_call(
     "remember" => RememberTool::json_schema()?,
     _ => return Err(format!("Unknown tool: {}", name).into()),
   };
+
+  crate::log::log("debug", &format!("validating tool args"));
+  // validate the tool call args against the schema
   validate_tool_call(args, &schema)?;
+
   match name {
     "store_memory" => StoreMemoryTool::new().handle(args),
     "remember" => RememberTool::new().handle(args),
     _ => unreachable!(),
   }
-}
-
-// Helper to detect and run tool calls from a chunk string
-pub fn handle_tool_call_from_json(chunk: &str) -> Option<String> {
-  let v: Value = serde_json::from_str(chunk).ok()?;
-  let choices = v.get("choices")?.as_array()?;
-  if choices.is_empty() {
-    return None;
-  }
-  let message = &choices[0]["message"];
-  let tool_calls = message.get("tool_calls")?.as_array()?;
-  let mut outputs = Vec::new();
-  for call in tool_calls {
-    let name = call.get("name")?.as_str()?;
-    let arguments: &str = call.get("arguments")?.as_str()?;
-    let payload = format!(r#"{{\"name\":\"{}\",\"arguments\":{}}}"#, name, arguments);
-
-    crate::log::log("debug", name);
-    crate::log::log("debug", arguments);
-
-    match handle_tool_call(&payload) {
-      Ok(out) => outputs.push(out),
-      Err(e) => outputs.push(format!("Error: {}", e)),
-    }
-  }
-  Some(outputs.join("\n"))
 }

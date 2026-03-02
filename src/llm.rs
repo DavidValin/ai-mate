@@ -2,11 +2,9 @@
 //  LLM handling
 // ------------------------------------------------------------------
 
-use std::sync::{Arc, OnceLock, atomic::AtomicU64};
-
-pub static TOOLS_SUPPORTED: OnceLock<bool> = OnceLock::new();
 use crate::tools::Tool;
 use crate::tools::get_available_tools;
+use crate::tools::handle_tool_call;
 use crate::tools::remember::RememberTool;
 use crate::tools::store_memory::StoreMemoryTool;
 use bytes::Bytes;
@@ -14,11 +12,13 @@ use crossbeam_channel::Receiver;
 use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
-fn extract_tool_calls_from_choice(choice: &Value) -> Option<String> {
-  let wrapper = json!({"choices":[choice]});
-  crate::tools::handle_tool_call_from_json(&wrapper.to_string())
-}
+// API
+// ------------------------------------------------------------------
+
+pub static TOOLS_SUPPORTED: OnceLock<bool> = OnceLock::new();
 
 /// Stream response from Llama/Ollama endpoints, fallback if one fails, and mid-stream cancellation support
 pub async fn llama_server_stream_response_into(
@@ -33,13 +33,17 @@ pub async fn llama_server_stream_response_into(
   on_piece: &mut dyn FnMut(&str),
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let mut full_payload = String::new();
+
   #[derive(Clone, Copy, Debug)]
   enum ApiKind {
-    OaiChat,
+    LlamaCppChat,
     OllamaGenerate,
     OllamaChat,
     LegacyCompletion,
   }
+  let mut partial_tool_calls_buf: HashMap<String, String> = HashMap::new();
+  let mut name_map: HashMap<String, String> = HashMap::new();
+  let mut last_key: Option<String> = None;
 
   #[derive(serde::Serialize)]
   struct ChatMessage<'a> {
@@ -48,7 +52,7 @@ pub async fn llama_server_stream_response_into(
   }
 
   #[derive(serde::Serialize)]
-  struct OaiChatReq<'a> {
+  struct LlamaCppReq<'a> {
     model: &'a str,
     messages: Vec<ChatMessage<'a>>,
     stream: bool,
@@ -129,42 +133,28 @@ pub async fn llama_server_stream_response_into(
     let mut out = Vec::new();
     match server_type {
       "llama-server" => {
+        out.push((format!("http://{}/api/chat", base), ApiKind::OllamaChat));
         out.push((
           format!("http://{}/completion", base),
           ApiKind::LegacyCompletion,
         ));
-        out.push((format!("http://{}/api/chat", base), ApiKind::OllamaChat));
       }
       "ollama" => {
-        out.push((
-          format!("http://{}/v1/generate", base),
-          ApiKind::OllamaGenerate,
-        ));
         out.push((format!("http://{}/api/chat", base), ApiKind::OllamaChat));
         out.push((
           format!("http://{}/v1/chat/completions", base),
-          ApiKind::OaiChat,
+          ApiKind::LlamaCppChat,
+        ));
+        out.push((
+          format!("http://{}/v1/generate", base),
+          ApiKind::OllamaGenerate,
         ));
         out.push((
           format!("http://{}/completion", base),
           ApiKind::LegacyCompletion,
         ));
       }
-      _ => {
-        out.push((
-          format!("http://{}/v1/generate", base),
-          ApiKind::OllamaGenerate,
-        ));
-        out.push((format!("http://{}/api/chat", base), ApiKind::OllamaChat));
-        out.push((
-          format!("http://{}/v1/chat/completions", base),
-          ApiKind::OaiChat,
-        ));
-        out.push((
-          format!("http://{}/completion", base),
-          ApiKind::LegacyCompletion,
-        ));
-      }
+      _ => {}
     }
     out
   }
@@ -182,9 +172,10 @@ pub async fn llama_server_stream_response_into(
     }
 
     crate::log::log("info", &format!("Trying endpoint: {}", url));
+    let tools_supported = crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false);
 
     let req = match kind {
-      ApiKind::OaiChat => {
+      ApiKind::LlamaCppChat => {
         let messages = vec![
           ChatMessage {
             role: "system",
@@ -195,8 +186,8 @@ pub async fn llama_server_stream_response_into(
             content: prompt,
           },
         ];
-        let tools_supported = crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false);
-        let payload = serde_json::to_value(OaiChatReq {
+
+        let payload = serde_json::to_value(LlamaCppReq {
           model: llama_model,
           messages,
           stream: true,
@@ -212,7 +203,6 @@ pub async fn llama_server_stream_response_into(
       }
 
       ApiKind::OllamaGenerate => {
-        let tools_supported = crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false);
         let payload = serde_json::to_value(OllamaGenerateReq {
           model: llama_model,
           prompt: prompt,
@@ -240,7 +230,6 @@ pub async fn llama_server_stream_response_into(
             content: prompt,
           },
         ];
-        let tools_supported = crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false);
         let payload = serde_json::to_value(OllamaChatReq {
           model: llama_model,
           messages: messages,
@@ -257,7 +246,6 @@ pub async fn llama_server_stream_response_into(
       }
 
       ApiKind::LegacyCompletion => {
-        let tools_supported = crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false);
         let payload = serde_json::to_value(LegacyCompletionReq {
           prompt: prompt,
           stream: true,
@@ -359,9 +347,24 @@ pub async fn llama_server_stream_response_into(
                   full_payload.push_str(&content);
                 }
               }
+              if let Some(tool_calls_value) = message.get("tool_calls") {
+                if tools_supported {
+                  match tool_calls_value {
+                    serde_json::Value::Array(arr) => {
+                      process_tool_calls_array(
+                        arr,
+                        &mut partial_tool_calls_buf,
+                        &mut name_map,
+                        &mut last_key,
+                      );
+                    }
+                    _ => {}
+                  }
+                }
+              }
             } else {
               match kind {
-                ApiKind::OaiChat | ApiKind::OllamaChat | ApiKind::OllamaGenerate => {
+                ApiKind::LlamaCppChat | ApiKind::OllamaChat | ApiKind::OllamaGenerate => {
                   if let Some(choices) = v.get("choices").and_then(|c| c.as_array()) {
                     for choice in choices {
                       if let Some(delta) = choice.get("delta") {
@@ -369,6 +372,22 @@ pub async fn llama_server_stream_response_into(
                           if !content.is_empty() {
                             on_piece(content);
                             full_payload.push_str(&content);
+                          }
+                        }
+                        if let Some(tool_calls_value) = delta.get("tool_calls") {
+                          if tools_supported {
+                            // tool_calls can be a string or an array of objects. Handle both.
+                            match tool_calls_value {
+                              serde_json::Value::Array(arr) => {
+                                process_tool_calls_array(
+                                  arr,
+                                  &mut partial_tool_calls_buf,
+                                  &mut name_map,
+                                  &mut last_key,
+                                );
+                              }
+                              _ => {}
+                            }
                           }
                         }
                       }
@@ -448,7 +467,7 @@ pub async fn supports_tool_calls(
           "stream": false,
           "messages": [
             { "role": "system", "content": "You are a helpful assistant." },
-            { "role": "user", "content": "Respond ONLY with a JSON tool_call object for a calculator adding 1 + 1" }
+            { "role": "user", "content": "Calculate 1 + 1 using the available tools" }
           ],
           "max_tokens": 200,
           "tools": [
@@ -493,5 +512,63 @@ pub async fn supports_tool_calls(
       Ok(false)
     }
     _ => Ok(false),
+  }
+}
+
+// PRIVATE
+// ------------------------------------------------------------------
+
+// processes an array of tool calls, accumulating arguments across chunks
+fn process_tool_calls_array(
+  arr: &Vec<serde_json::Value>,
+  args_map: &mut HashMap<String, String>,
+  name_map: &mut HashMap<String, String>,
+  last_key: &mut Option<String>,
+) {
+  for tc in arr {
+    let key = if let Some(id) = tc.get("id").and_then(|v| v.as_str()) {
+      id.to_string()
+    } else {
+      last_key.clone().unwrap_or("__no_id__".to_string())
+    };
+    *last_key = Some(key.clone());
+    if let Some(func_obj) = tc.get("function") {
+      crate::log::log("debug", &format!("{:?}", func_obj));
+      // extract the tool name from the function object
+      let name = func_obj
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("unknown");
+      // store name if not already
+      name_map
+        .entry(key.clone())
+        .or_insert_with(|| name.to_string());
+      if let Some(args_val) = func_obj.get("arguments") {
+        // buffers partial string arguments
+        // validates them as JSON and executes the tool call once a complete arguments payload is available
+        match args_val {
+          serde_json::Value::String(s) => {
+            let buf = args_map.entry(key.clone()).or_insert_with(String::new);
+            buf.push_str(s);
+            if serde_json::from_str::<serde_json::Value>(buf).is_ok() {
+              let stored_name = name_map.get(&key).map(|s| s.as_str()).unwrap_or("unknown");
+              *buf = serde_json::to_string(
+                  &serde_json::from_str::<serde_json::Value>(buf).unwrap_or(serde_json::Value::Null)
+              )
+              .unwrap_or("{}".to_string());
+              let payload = format!(r#"{{"name":"{}","arguments":{}}}"#, stored_name, buf);
+              let _ = handle_tool_call(&payload);
+              buf.clear();
+            }
+          }
+           _ => {
+             let args_str = serde_json::to_string(args_val).unwrap_or("{}".to_string());
+             let stored_name = name_map.get(&key).map(|s| s.as_str()).unwrap_or("unknown");
+             let payload = format!(r#"{{"name":"{}","arguments":{}}}"#, stored_name, args_str);
+             let _ = handle_tool_call(&payload);
+           }
+        }
+      }
+    }
   }
 }

@@ -270,6 +270,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     ui.peak.clone(),
     rx_ui,
   );
+  // Set global UI sender for memory notifications
+  crate::memory::TX_UI.set(tx_ui.clone()).unwrap();
 
   // ---- Thread: TTS -----
   let stop_play_tx_for_tts = stop_play_tx.clone();
