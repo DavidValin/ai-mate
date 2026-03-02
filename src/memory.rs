@@ -3,14 +3,16 @@
 // ------------------------------------------------------------------
 
 use anndists::dist::DistL2; // L2 distance implementation
+                            // bincode removed
 use crossbeam_channel::Sender;
 use hnsw_rs::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
+use sled;
 use std::collections::{HashMap, HashSet};
-use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter};
+use std::hash::{Hash, Hasher};
+// File and BufReader/BufWriter removed
 use std::sync::OnceLock;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -74,8 +76,12 @@ pub struct VecKnowledgeUnit {
 
 pub struct Memory {
   hnsw: Hnsw<'static, f32, DistL2>,
-  index_map: HashMap<usize, VecKnowledgeUnit>,
+  pub index_map: HashMap<usize, VecKnowledgeUnit>,
   next_id: usize,
+  // Inverted indexes for disk‑side search
+  subject_index: HashMap<String, Vec<usize>>,
+  predicate_index: HashMap<String, Vec<usize>>,
+  object_index: HashMap<String, Vec<usize>>,
 }
 
 impl Memory {
@@ -97,12 +103,20 @@ impl Memory {
       hnsw,
       index_map: HashMap::new(),
       next_id: 0,
+      subject_index: HashMap::new(),
+      predicate_index: HashMap::new(),
+      object_index: HashMap::new(),
     }
   }
 
   fn embed_text(text: &str) -> Vec<f32> {
-    let mut vec: Vec<f32> = text.chars().map(|c| c as u32 as f32).collect();
-    vec.resize(128, 0.0);
+    let mut vec = vec![0.0f32; 128];
+    for word in text.split_whitespace() {
+      let mut hasher = std::collections::hash_map::DefaultHasher::new();
+      word.hash(&mut hasher);
+      let idx = (hasher.finish() as usize) % 128;
+      vec[idx] += 1.0;
+    }
     vec
   }
 
@@ -110,7 +124,7 @@ impl Memory {
   pub fn build_context_from_units(units: &[KnowledgeUnit]) -> String {
     let mut context_phrases = Vec::new();
     for unit in units {
-      let loc = unit.location.clone().unwrap_or("unknown location".into());
+      let location = unit.location.clone().unwrap_or("unknown location".into());
 
       // Convert SystemTime -> seconds since UNIX_EPOCH
       let duration_since_epoch = unit
@@ -129,8 +143,8 @@ impl Memory {
 
       // Build sentence
       let phrase = format!(
-        "{} {} {} in {} at {}.",
-        unit.subject, unit.predicate.name, unit.object, loc, time_str
+        "Subject: '\x1b[32m{}\x1b[0m' Predicate: '\x1b[34m{}\x1b[0m' Object: '\x1b[35m{}\x1b[0m' in '\x1b[36m{}\x1b[0m' at '\x1b[33m{}\x1b[0m'.",
+        unit.subject, unit.predicate.name, unit.object, location, time_str
       );
       context_phrases.push(phrase);
     }
@@ -159,6 +173,22 @@ impl Memory {
 
     self.hnsw.insert((&embedding, id));
     self.next_id += 1;
+    // Update inverted indexes
+    self
+      .subject_index
+      .entry(unit.subject.clone())
+      .or_default()
+      .push(id);
+    self
+      .predicate_index
+      .entry(unit.predicate.name.clone())
+      .or_default()
+      .push(id);
+    self
+      .object_index
+      .entry(unit.object.clone())
+      .or_default()
+      .push(id);
     // Send UI notification
     if let Some(sender) = TX_UI.get() {
       // Send UI notification using a clone to avoid moving the original unit
@@ -260,6 +290,24 @@ impl Memory {
       .collect()
   }
 
+  /// Disk‑side search using the inverted indexes
+  pub fn query_disk(&self, field: &str, value: &str) -> Vec<KnowledgeUnit> {
+    let id_list = match field {
+      "subject" => self.subject_index.get(value),
+      "predicate" => self.predicate_index.get(value),
+      "object" => self.object_index.get(value),
+      _ => None,
+    };
+
+    match id_list {
+      Some(ids) => ids
+        .iter()
+        .map(|&id| self.index_map[&id].knowledge.clone())
+        .collect(),
+      None => vec![],
+    }
+  }
+
   pub fn to_json_graph(&self) -> serde_json::Value {
     let mut nodes_set = HashSet::new();
     let mut nodes = vec![];
@@ -296,35 +344,34 @@ impl Memory {
 
   /// Save memory to disk (both embeddings & knowledge units)
   pub fn save_to_file(&self, path: &str) -> anyhow::Result<()> {
-    let file = OpenOptions::new()
-      .write(true)
-      .create(true)
-      .truncate(true)
-      .open(path)?;
-    let writer = BufWriter::new(file);
-
-    // Save all index_map entries + next_id
-    let data = json!({
+    // Store in sled under a single key
+    let db = sled::open(path)?;
+    let persist = serde_json::json!({
       "next_id": self.next_id,
       "units": self.index_map,
+      "subject_index": self.subject_index,
+      "predicate_index": self.predicate_index,
+      "object_index": self.object_index
     });
-
-    serde_json::to_writer(writer, &data)?;
+    let bytes = serde_json::to_vec(&persist)?;
+    db.insert(b"memory", bytes)?;
+    db.flush()?;
     Ok(())
   }
 
   /// Load memory from disk, reconstructing HNSW graph
   pub fn load_from_file(path: &str) -> anyhow::Result<Self> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    let data: Value = serde_json::from_reader(reader)?;
+    let db = sled::open(path)?;
+    let data = db
+      .get(b"memory")?
+      .ok_or_else(|| anyhow::anyhow!("memory data not found"))?;
+    let persist: serde_json::Value = serde_json::from_slice(&data)?;
 
     let units_map: HashMap<usize, VecKnowledgeUnit> =
-      serde_json::from_value(data["units"].clone())?;
-    let next_id = data["next_id"].as_u64().unwrap_or(0) as usize;
+      serde_json::from_value(persist["units"].clone())?;
+    let next_id = persist["next_id"].as_u64().unwrap_or(0) as usize;
     let expected_elements = units_map.len().max(1);
 
-    // Rebuild HNSW
     let max_nb_connection = 16;
     let max_layer = std::cmp::max(1, 16.min((expected_elements as f32).ln().trunc() as usize));
     let ef_construction = 200;
@@ -341,11 +388,16 @@ impl Memory {
       hnsw.insert((&v.embedding, *id));
     }
 
-    Ok(Memory {
+    let mut memory = Memory {
       hnsw,
       index_map: units_map,
       next_id,
-    })
+      subject_index: serde_json::from_value(persist["subject_index"].clone())?,
+      predicate_index: serde_json::from_value(persist["predicate_index"].clone())?,
+      object_index: serde_json::from_value(persist["object_index"].clone())?,
+    };
+
+    Ok(memory)
   }
 
   pub fn autosave(self, path: String, interval_sec: u64) -> JoinHandle<()>
