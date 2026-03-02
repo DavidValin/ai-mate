@@ -11,9 +11,22 @@ use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, atomic::AtomicU64};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChatMessage {
+  pub role: String,
+  pub content: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ChatMessageRef<'a> {
+  role: &'a str,
+  content: &'a str,
+}
 
 // API
 // ------------------------------------------------------------------
@@ -22,10 +35,10 @@ pub static TOOLS_SUPPORTED: OnceLock<bool> = OnceLock::new();
 
 /// Stream response from Llama/Ollama endpoints, fallback if one fails, and mid-stream cancellation support
 pub async fn llama_server_stream_response_into(
-  prompt: &str,
+  conversation_history: &[ChatMessage],
+  user_prompt: &str,
   llama_host: &str,
   llama_model: &str,
-
   server_type: &str,
   stop_all_rx: &Receiver<()>,
   interrupt_counter: Arc<AtomicU64>,
@@ -46,15 +59,9 @@ pub async fn llama_server_stream_response_into(
   let mut last_key: Option<String> = None;
 
   #[derive(serde::Serialize)]
-  struct ChatMessage<'a> {
-    role: &'a str,
-    content: &'a str,
-  }
-
-  #[derive(serde::Serialize)]
   struct LlamaCppReq<'a> {
     model: &'a str,
-    messages: Vec<ChatMessage<'a>>,
+    messages: Vec<ChatMessageRef<'a>>,
     stream: bool,
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,7 +83,7 @@ pub async fn llama_server_stream_response_into(
   #[derive(serde::Serialize)]
   struct OllamaChatReq<'a> {
     model: &'a str,
-    messages: Vec<ChatMessage<'a>>,
+    messages: Vec<ChatMessageRef<'a>>,
     stream: bool,
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -176,16 +183,22 @@ pub async fn llama_server_stream_response_into(
 
     let req = match kind {
       ApiKind::LlamaCppChat => {
-        let messages = vec![
-          ChatMessage {
-            role: "system",
-            content: "You are a helpful assistant.",
-          },
-          ChatMessage {
-            role: "user",
-            content: prompt,
-          },
-        ];
+        let mut messages_vec: Vec<ChatMessageRef> = Vec::new();
+        messages_vec.push(ChatMessageRef {
+          role: "system",
+          content: "You are a helpful assistant.",
+        });
+        for m in conversation_history.iter() {
+          messages_vec.push(ChatMessageRef {
+            role: m.role.as_str(),
+            content: &m.content,
+          });
+        }
+        messages_vec.push(ChatMessageRef {
+          role: "user",
+          content: user_prompt,
+        });
+        let messages = messages_vec;
 
         let payload = serde_json::to_value(LlamaCppReq {
           model: llama_model,
@@ -205,7 +218,7 @@ pub async fn llama_server_stream_response_into(
       ApiKind::OllamaGenerate => {
         let payload = serde_json::to_value(OllamaGenerateReq {
           model: llama_model,
-          prompt: prompt,
+          prompt: user_prompt,
           stream: true,
           max_tokens: Some(1024),
           tools: if tools_supported {
@@ -220,19 +233,28 @@ pub async fn llama_server_stream_response_into(
       }
 
       ApiKind::OllamaChat => {
-        let messages = vec![
-          ChatMessage {
-            role: "system",
-            content: "You are a helpful assistant.",
-          },
-          ChatMessage {
-            role: "user",
-            content: prompt,
-          },
-        ];
+        // no-op
+        let mut messages_vec: Vec<ChatMessageRef> = Vec::new();
+        messages_vec.push(ChatMessageRef {
+          role: "system",
+          content: "You are a helpful assistant.",
+        });
+        for m in conversation_history.iter() {
+          messages_vec.push(ChatMessageRef {
+            role: m.role.as_str(),
+            content: &m.content,
+          });
+        }
+        messages_vec.push(ChatMessageRef {
+          role: "user",
+          content: user_prompt,
+        });
+        let messages = messages_vec;
+
         let payload = serde_json::to_value(OllamaChatReq {
           model: llama_model,
-          messages: messages,
+          messages,
+
           stream: true,
           tools: if tools_supported {
             Some(tool_schemas.clone())
@@ -247,7 +269,7 @@ pub async fn llama_server_stream_response_into(
 
       ApiKind::LegacyCompletion => {
         let payload = serde_json::to_value(LegacyCompletionReq {
-          prompt: prompt,
+          prompt: user_prompt,
           stream: true,
           n_predict: 400,
           temperature: 0.7,
@@ -533,7 +555,6 @@ fn process_tool_calls_array(
     };
     *last_key = Some(key.clone());
     if let Some(func_obj) = tc.get("function") {
-      crate::log::log("debug", &format!("{:?}", func_obj));
       // extract the tool name from the function object
       let name = func_obj
         .get("name")
@@ -553,7 +574,7 @@ fn process_tool_calls_array(
             if serde_json::from_str::<serde_json::Value>(buf).is_ok() {
               let stored_name = name_map.get(&key).map(|s| s.as_str()).unwrap_or("unknown");
               *buf = serde_json::to_string(
-                  &serde_json::from_str::<serde_json::Value>(buf).unwrap_or(serde_json::Value::Null)
+                &serde_json::from_str::<serde_json::Value>(buf).unwrap_or(serde_json::Value::Null),
               )
               .unwrap_or("{}".to_string());
               let payload = format!(r#"{{"name":"{}","arguments":{}}}"#, stored_name, buf);
@@ -561,12 +582,12 @@ fn process_tool_calls_array(
               buf.clear();
             }
           }
-           _ => {
-             let args_str = serde_json::to_string(args_val).unwrap_or("{}".to_string());
-             let stored_name = name_map.get(&key).map(|s| s.as_str()).unwrap_or("unknown");
-             let payload = format!(r#"{{"name":"{}","arguments":{}}}"#, stored_name, args_str);
-             let _ = handle_tool_call(&payload);
-           }
+          _ => {
+            let args_str = serde_json::to_string(args_val).unwrap_or("{}".to_string());
+            let stored_name = name_map.get(&key).map(|s| s.as_str()).unwrap_or("unknown");
+            let payload = format!(r#"{{"name":"{}","arguments":{}}}"#, stored_name, args_str);
+            let _ = handle_tool_call(&payload);
+          }
         }
       }
     }

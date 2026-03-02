@@ -92,7 +92,7 @@ pub fn tts_thread(
       recv(rx_tts) -> msg => {
         let (phrase, expected_interrupt) = match msg {
           Ok(v) => v,
-          Err(_) => break,
+          Err(_) => continue,
         };
         let voice = voice_state.lock().unwrap().clone();
         let outcome = crate::tts::speak(
@@ -123,7 +123,7 @@ pub fn tts_thread(
           }
           Err(_e) => {
             crate::log::log("error", &format!("TTS error. Can't play audio speech. Make sure OpenTTS is running: docker run --rm -p 5500:5500 synesthesiam/opentts:all"));
-            break;
+            continue;
           }
         }
         // Stop if interrupt counter changed while speaking
@@ -136,8 +136,8 @@ pub fn tts_thread(
         }
       },
         recv(stop_all_rx) -> _ => {
-            // Gracefully exit on stop signal
-            break;
+          // Gracefully exit on stop signal
+          break;
         }
     }
   }
@@ -694,11 +694,16 @@ fn stream_wav16le_over_http(
           break;
         }
         data.truncate(aligned);
-        tx.send(crate::audio::AudioChunk {
-          data,
-          channels,
-          sample_rate: target_sr,
-        })?;
+        if tx
+          .try_send(crate::audio::AudioChunk {
+            data,
+            channels,
+            sample_rate: target_sr,
+          })
+          .is_err()
+        {
+          crate::log::log("error", "TTS send audio chunk failed");
+        }
         offset = end;
       }
     }
@@ -712,11 +717,16 @@ fn stream_wav16le_over_http(
       if interrupt_counter.load(Ordering::SeqCst) != expected_interrupt {
         return Ok(SpeakOutcome::Interrupted);
       }
-      tx.send(crate::audio::AudioChunk {
-        data: pending,
-        channels,
-        sample_rate: target_sr,
-      })?;
+      if tx
+        .try_send(crate::audio::AudioChunk {
+          data: pending,
+          channels,
+          sample_rate: target_sr,
+        })
+        .is_err()
+      {
+        crate::log::log("error", "TTS send audio chunk failed");
+      }
     }
   } else {
     let mut pcm = vec![0u8; data_len as usize];
@@ -768,11 +778,16 @@ fn stream_wav16le_over_http(
     } else {
       Vec::new()
     };
-    tx.send(crate::audio::AudioChunk {
-      data,
-      channels,
-      sample_rate: target_sr,
-    })?;
+    if tx
+      .try_send(crate::audio::AudioChunk {
+        data,
+        channels,
+        sample_rate: target_sr,
+      })
+      .is_err()
+    {
+      crate::log::log("error", "TTS send audio chunk failed");
+    }
   }
 
   Ok(SpeakOutcome::Completed)

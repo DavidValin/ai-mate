@@ -5,8 +5,8 @@
 use super::Tool;
 use crate::memory::{KnowledgeUnit, Memory, Predicate};
 use crate::util;
-use serde_json::json;
 use serde_json::Value;
+use serde_json::json;
 // use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -3,12 +3,12 @@
 // ------------------------------------------------------------------
 
 use anndists::dist::DistL2; // L2 distance implementation
-                            // bincode removed
+// bincode removed
 use crossbeam_channel::Sender;
 use hnsw_rs::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use serde_json::Value;
+use serde_json::json;
 use sled;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -380,11 +380,13 @@ impl Memory {
   where
     Self: Send + 'static,
   {
-    thread::spawn(move || loop {
-      if let Err(e) = self.save_to_file(&path) {
-        eprintln!("Failed to autosave memory: {:?}", e);
+    thread::spawn(move || {
+      loop {
+        if let Err(e) = self.save_to_file(&path) {
+          eprintln!("Failed to autosave memory: {:?}", e);
+        }
+        thread::sleep(Duration::from_secs(interval_sec));
       }
-      thread::sleep(Duration::from_secs(interval_sec));
     })
   }
 }

@@ -62,125 +62,132 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
   let _ = START_INSTANT.get_or_init(Instant::now);
   let args = crate::config::Args::parse();
-    let memory_path = memory::ensure_memory_path();
+  let memory_path = memory::ensure_memory_path();
 
-if args.get_memories {
+  if args.get_memories {
     use crate::memory::Memory;
     use std::path::Path;
     let path = memory_path.as_str();
     if Path::new(path).exists() {
-        let memory = Memory::load_from_file(path).expect("failed to load memory");
-        for v in memory.index_map.values() {
-            let unit = v.knowledge.clone();
-            let text = Memory::build_context_from_units(&[unit]);
-            println!("{}", text);
-        }
+      let memory = Memory::load_from_file(path).expect("failed to load memory");
+      for v in memory.index_map.values() {
+        let unit = v.knowledge.clone();
+        let text = Memory::build_context_from_units(&[unit]);
+        println!("{}", text);
+      }
     } else {
-        eprintln!("No memory file found");
+      eprintln!("No memory file found");
     }
     process::exit(0);
-}
+  }
 
-// Get by subject
-if let Some(subj) = args.get_memories_by_subject {
+  // Get by subject
+  if let Some(subj) = args.get_memories_by_subject {
     use crate::memory::Memory;
     use std::path::Path;
     let path = memory_path.as_str();
     if !Path::new(path).exists() {
-        eprintln!("No memory file found");
-        process::exit(1);
+      eprintln!("No memory file found");
+      process::exit(1);
     }
     let memory = Memory::load_from_file(path).expect("failed to load memory");
     let results = memory.get_by_subject(&subj, None, None, None);
     for unit in results {
-        let text = Memory::build_context_from_units(&[unit]);
-        println!("{}", text);
+      let text = Memory::build_context_from_units(&[unit]);
+      println!("{}", text);
     }
     process::exit(0);
-}
+  }
 
-// Get by predicate
-if let Some(pred) = args.get_memories_by_predicate {
+  // Get by predicate
+  if let Some(pred) = args.get_memories_by_predicate {
     use crate::memory::Memory;
     use std::path::Path;
     let path = memory_path.as_str();
     if !Path::new(path).exists() {
-        eprintln!("No memory file found");
-        process::exit(1);
+      eprintln!("No memory file found");
+      process::exit(1);
     }
     let memory = Memory::load_from_file(path).expect("failed to load memory");
     let results = memory.get_by_predicate(&pred, None, None, None);
     for unit in results {
-        let text = Memory::build_context_from_units(&[unit]);
-        println!("{}", text);
+      let text = Memory::build_context_from_units(&[unit]);
+      println!("{}", text);
     }
     process::exit(0);
-}
+  }
 
-// Get by object
-if let Some(obj) = args.get_memories_by_object {
+  // Get by object
+  if let Some(obj) = args.get_memories_by_object {
     use crate::memory::Memory;
     use std::path::Path;
     let path = memory_path.as_str();
     if !Path::new(path).exists() {
-        eprintln!("No memory file found");
-        process::exit(1);
+      eprintln!("No memory file found");
+      process::exit(1);
     }
     let memory = Memory::load_from_file(path).expect("failed to load memory");
     let results = memory.get_by_object(&obj, None, None, None);
     for unit in results {
-        let text = Memory::build_context_from_units(&[unit]);
-        println!("{}", text);
+      let text = Memory::build_context_from_units(&[unit]);
+      println!("{}", text);
     }
     process::exit(0);
-}
+  }
 
-// Get by location
-if let Some(loc) = args.get_memories_by_location {
+  // Get by location
+  if let Some(loc) = args.get_memories_by_location {
     use crate::memory::Memory;
     use std::path::Path;
     let path = memory_path.as_str();
     if !Path::new(path).exists() {
-        eprintln!("No memory file found");
-        process::exit(1);
+      eprintln!("No memory file found");
+      process::exit(1);
     }
     let memory = Memory::load_from_file(path).expect("failed to load memory");
     let results = memory.get_by_location(&loc, None, None);
     for unit in results {
-        let text = Memory::build_context_from_units(&[unit]);
-        println!("{}", text);
+      let text = Memory::build_context_from_units(&[unit]);
+      println!("{}", text);
     }
     process::exit(0);
-}
+  }
 
-// Query memory
-if let Some(query) = args.query_memory {
+  // Query memory
+  if let Some(query) = args.query_memory {
     use crate::memory::Memory;
     use std::path::Path;
     let path = memory_path.as_str();
     if !Path::new(path).exists() {
-        eprintln!("No memory file found");
-        process::exit(1);
+      eprintln!("No memory file found");
+      process::exit(1);
     }
     let memory = Memory::load_from_file(path).expect("failed to load memory");
     let top_k = memory.index_map.len();
     let ef_search = 200;
     let results = memory.query(&query, top_k, ef_search);
-    let cleaned_query = |s: &str| s.to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), " ");
+    let cleaned_query = |s: &str| {
+      s.to_lowercase()
+        .replace(|c: char| !c.is_ascii_alphanumeric(), " ")
+    };
     let cleaned_query_str = cleaned_query(&query);
     let query_words: Vec<&str> = cleaned_query_str.split_whitespace().collect();
     for unit in results {
-        let combined = format!("{} {} {} {}", unit.subject, unit.predicate.name, unit.object, unit.location.clone().unwrap_or_default());
-        let cleaned_combined = cleaned_query(&combined);
-        if query_words.iter().any(|w| cleaned_combined.contains(w)) {
-            let text = Memory::build_context_from_units(&[unit]);
-            println!("{}", text);
-        }
+      let combined = format!(
+        "{} {} {} {}",
+        unit.subject,
+        unit.predicate.name,
+        unit.object,
+        unit.location.clone().unwrap_or_default()
+      );
+      let cleaned_combined = cleaned_query(&combined);
+      if query_words.iter().any(|w| cleaned_combined.contains(w)) {
+        let text = Memory::build_context_from_units(&[unit]);
+        println!("{}", text);
+      }
     }
     process::exit(0);
-}
-
-
+  }
 
   // Determine base URL for LLM
   let base_url = if args.llm == "ollama" {
@@ -279,7 +286,7 @@ if let Some(query) = args.query_memory {
   // channel for tts phrases
   let (tx_tts, rx_tts) = bounded::<(String, u64)>(1);
   // channel for playback audio chunks
-  let (tx_play, rx_play) = unbounded::<audio::AudioChunk>();
+  let (tx_play, rx_play) = bounded::<audio::AudioChunk>(1);
 
   // Clones for threads
   let rx_play_for_playback = rx_play.clone();
