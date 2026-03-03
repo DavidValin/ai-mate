@@ -171,8 +171,8 @@ impl Memory {
       let _ = sender.send(format!(
         "line|🧠 Memory saved: {} {} {}",
         unit.subject.clone(),
-        unit.object.clone(),
-        unit.predicate.name.clone()
+        unit.predicate.name.clone(),
+        unit.object.clone()
       ));
     }
   }

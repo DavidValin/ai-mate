@@ -36,6 +36,8 @@ pub static TOOLS_SUPPORTED: OnceLock<bool> = OnceLock::new();
 /// Stream response from Llama/Ollama endpoints, fallback if one fails, and mid-stream cancellation support
 pub async fn llama_server_stream_response_into(
   conversation_history: &[ChatMessage],
+  full_history: bool,
+  include_tools: bool,
   user_prompt: &str,
   llama_host: &str,
   llama_model: &str,
@@ -63,9 +65,12 @@ pub async fn llama_server_stream_response_into(
     model: &'a str,
     messages: Vec<ChatMessageRef<'a>>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parallel_tool_calls: Option<bool>,
   }
 
   #[derive(serde::Serialize)]
@@ -75,6 +80,7 @@ pub async fn llama_server_stream_response_into(
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<&'a str>,
@@ -85,6 +91,7 @@ pub async fn llama_server_stream_response_into(
     model: &'a str,
     messages: Vec<ChatMessageRef<'a>>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<&'a str>,
@@ -116,6 +123,7 @@ pub async fn llama_server_stream_response_into(
     cache_prompt: bool,
     api_key: &'a str,
     slot_id: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<&'a str>,
@@ -179,38 +187,63 @@ pub async fn llama_server_stream_response_into(
     }
 
     crate::log::log("info", &format!("Trying endpoint: {}", url));
+
+    let new_user_prompt = ChatMessageRef {
+      role: "user",
+      content: user_prompt,
+    };
+
+    // contains the full prompt (with previous history)
+    let mut full_messages_vec: Vec<ChatMessageRef> = Vec::new();
+
+    // prepare messages
+    full_messages_vec.push(ChatMessageRef {
+      role: "system",
+      content: "You are a helpful assistant.",
+    });
+
+    // include the full chat history in the prompt
+    if full_history {
+      for m in conversation_history.iter() {
+        full_messages_vec.push(ChatMessageRef {
+          role: m.role.as_str(),
+          content: &m.content,
+        });
+      }
+    }
+
+    // add latest message at the end of history
+    full_messages_vec.push(ChatMessageRef {
+      role: "user",
+      content: user_prompt,
+    });
+
+    let messages = full_messages_vec;
     let tools_supported = crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false);
 
     let req = match kind {
       ApiKind::LlamaCppChat => {
-        let mut messages_vec: Vec<ChatMessageRef> = Vec::new();
-        messages_vec.push(ChatMessageRef {
-          role: "system",
-          content: "You are a helpful assistant.",
-        });
-        for m in conversation_history.iter() {
-          messages_vec.push(ChatMessageRef {
-            role: m.role.as_str(),
-            content: &m.content,
-          });
-        }
-        messages_vec.push(ChatMessageRef {
-          role: "user",
-          content: user_prompt,
-        });
-        let messages = messages_vec;
-
         let payload = serde_json::to_value(LlamaCppReq {
           model: llama_model,
           messages,
           stream: true,
-          tools: if tools_supported {
-            Some(tool_schemas.clone())
+          tools: if include_tools && tools_supported {
+            Some(vec![StoreMemoryTool::json_schema()?])
           } else {
             None
           },
-          tool_choice: if tools_supported { Some("auto") } else { None },
+          tool_choice: if include_tools && tools_supported {
+            Some("auto")
+          } else {
+            None
+          },
+          parallel_tool_calls: if include_tools && tools_supported {
+            Some(true)
+          } else {
+            None
+          },
         })?;
+
         // crate::log::log("debug", &format!("LLM payload: {}", payload));
         client.post(&url).json(&payload)
       }
@@ -221,48 +254,39 @@ pub async fn llama_server_stream_response_into(
           prompt: user_prompt,
           stream: true,
           max_tokens: Some(1024),
-          tools: if tools_supported {
-            Some(tool_schemas.clone())
+          tools: if include_tools && tools_supported {
+            Some(vec![StoreMemoryTool::json_schema()?])
           } else {
             None
           },
-          tool_choice: if tools_supported { Some("auto") } else { None },
+          tool_choice: if include_tools && tools_supported {
+            Some("auto")
+          } else {
+            None
+          },
         })?;
+
         //crate::log::log("debug", &format!("LLM payload: {}", payload));
         client.post(&url).json(&payload)
       }
 
       ApiKind::OllamaChat => {
-        // no-op
-        let mut messages_vec: Vec<ChatMessageRef> = Vec::new();
-        messages_vec.push(ChatMessageRef {
-          role: "system",
-          content: "You are a helpful assistant.",
-        });
-        for m in conversation_history.iter() {
-          messages_vec.push(ChatMessageRef {
-            role: m.role.as_str(),
-            content: &m.content,
-          });
-        }
-        messages_vec.push(ChatMessageRef {
-          role: "user",
-          content: user_prompt,
-        });
-        let messages = messages_vec;
-
         let payload = serde_json::to_value(OllamaChatReq {
           model: llama_model,
           messages,
-
           stream: true,
-          tools: if tools_supported {
-            Some(tool_schemas.clone())
+          tools: if include_tools && tools_supported {
+            Some(vec![StoreMemoryTool::json_schema()?])
           } else {
             None
           },
-          tool_choice: if tools_supported { Some("auto") } else { None },
+          tool_choice: if include_tools && tools_supported {
+            Some("auto")
+          } else {
+            None
+          },
         })?;
+
         //crate::log::log("debug", &format!("LLM payload: {}", payload));
         client.post(&url).json(&payload)
       }
@@ -293,13 +317,18 @@ pub async fn llama_server_stream_response_into(
           cache_prompt: true,
           api_key: "",
           slot_id: -1,
-          tools: if tools_supported {
-            Some(tool_schemas.clone())
+          tools: if include_tools && tools_supported {
+            Some(vec![StoreMemoryTool::json_schema()?])
           } else {
             None
           },
-          tool_choice: if tools_supported { Some("auto") } else { None },
+          tool_choice: if include_tools && tools_supported {
+            Some("auto")
+          } else {
+            None
+          },
         })?;
+
         //crate::log::log("debug", &format!("LLM payload: {}", payload));
         client.post(&url).json(&payload)
       }

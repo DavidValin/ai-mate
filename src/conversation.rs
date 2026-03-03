@@ -12,6 +12,7 @@ use std::sync::{
   Arc,
   atomic::{AtomicU64, Ordering},
 };
+use tokio::spawn;
 
 static WHISPER_CTX: OnceLock<whisper_rs::WhisperContext> = OnceLock::new();
 
@@ -161,7 +162,8 @@ pub fn conversation_thread(
           let _ = tx_ui_cloned_for_closure.send(format!("stream|{}", piece));
         };
 
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let user_text2 = user_text.clone();
+        let rt_llm_call = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let stop_all_rx_cloned = stop_all_rx.clone();
         let ollama_url = args.ollama_url.clone();
         let interrupt_counter_cloned = interrupt_counter.clone();
@@ -171,37 +173,88 @@ pub fn conversation_thread(
 
         if args.llm == "llama-server" {
           let on_piece_cloned = std::sync::Arc::new(std::sync::Mutex::new(on_piece));
+          let on_piece_cloned1 = on_piece_cloned.clone();
+
           let conv_hist_clone = conversation_history.clone();
+
           let handle = std::thread::spawn(move || {
-            rt.block_on(async {
-              match crate::llm::llama_server_stream_response_into (
-                conv_hist_clone.lock().unwrap().as_slice(),
-                &user_text,
-                llama_url.as_str(),
-                model.as_str(),
-                engine_type.as_str(),
-                &stop_all_rx_cloned,
-                interrupt_counter_cloned.clone(),
-                my_interrupt,
-                &mut *on_piece_cloned.lock().unwrap()
-              ).await {
-                Ok(_) => Ok(()),
-                Err(e) => {
-                  crate::log::log("error", &format!("llama server error: {e}. Make sure llama-server / llamafile is running"));
-                  Err(e)
+            // ask for store memory tool calls using this last message
+            if crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false) {
+              rt_llm_call.block_on(async {
+                match crate::llm::llama_server_stream_response_into (
+                  conv_hist_clone.lock().unwrap().as_slice(),
+                  true, // send full history
+                  false, // no tool calls
+                  &user_text,
+                  llama_url.as_str(),
+                  model.as_str(),
+                  engine_type.as_str(),
+                  &stop_all_rx_cloned,
+                  interrupt_counter_cloned.clone(),
+                  my_interrupt,
+                  &mut *on_piece_cloned.lock().unwrap()
+                ).await {
+                  Ok(_) => (),
+                  Err(e) => {
+                    crate::log::log("error", &format!("llama server error: {e}. Make sure llama-server / llamafile is running"));
+                  }
                 }
-              }
-            })
+              });
+            }
           });
-          handle.join().unwrap()?;
+
+          let rt_llm_tools_call = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+          let conv_hist_clone2 = conversation_history.clone();
+
+          let llama_url2 = args.llama_server_url.clone();
+          let model2 = args.model.clone();
+          let engine_type2 = args.llm.clone();
+          let my_interrupt2 = my_interrupt.clone();
+          let stop_all_rx_cloned2 = stop_all_rx.clone();
+          let interrupt_counter_cloned2 = interrupt_counter.clone();
+          let on_piece_cloned12 = on_piece_cloned1.clone();
+
+          let handle2 = std::thread::spawn(move || {
+            // ask for store memory tool calls using this last message
+            if crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false) {
+              rt_llm_tools_call.block_on(async {
+                match crate::llm::llama_server_stream_response_into (
+                  conv_hist_clone2.lock().unwrap().as_slice(),
+                  false, // send only this user message
+                  true, // include tools
+                  &user_text2,
+                  llama_url2.as_str(),
+                  model2.as_str(),
+                  engine_type2.as_str(),
+                  &stop_all_rx_cloned2,
+                  interrupt_counter_cloned2.clone(),
+                  my_interrupt2,
+                  &mut *on_piece_cloned12.lock().unwrap()
+                ).await {
+                  Ok(_) => (),
+                  Err(e) => {
+                    crate::log::log("error", &format!("llama server error: {e}. Make sure llama-server / llamafile is running"));
+                  }
+                }
+              })
+            }
+          });
+
+          handle.join().unwrap();
+          handle2.join().unwrap();
+
         } else {
           let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
           let on_piece_cloned = std::sync::Arc::new(std::sync::Mutex::new(on_piece));
           let conv_hist_clone = conversation_history.clone();
           let handle = std::thread::spawn(move || {
+
+            // llm stream request
             rt.block_on(async {
               match crate::llm::llama_server_stream_response_into (
                 conv_hist_clone.lock().unwrap().as_slice(),
+                true, // include full history
+                false, // do not include tools
                 &user_text,
                 ollama_url.as_str(),
                 model.as_str(),
@@ -217,9 +270,37 @@ pub fn conversation_thread(
                   Err(e)
                 }
               }
-            })
+            });
+
+            // ask for store memory tool calls using this last message
+            if crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false) {
+              rt.block_on(async {
+                match crate::llm::llama_server_stream_response_into (
+                  conv_hist_clone.lock().unwrap().as_slice(),
+                  false, // send only this user message
+                  true, // include tools
+                  &user_text,
+                  ollama_url.as_str(),
+                  model.as_str(),
+                  engine_type.as_str(),
+                  &stop_all_rx_cloned,
+                  interrupt_counter_cloned.clone(),
+                  my_interrupt,
+                  &mut *on_piece_cloned.lock().unwrap()
+                ).await {
+                  Ok(_) => Ok(()),
+                  Err(e) => {
+                    crate::log::log("error", &format!("ollama error. {e}. Make sure ollama is running"));
+                    Err(e)
+                  }
+                }
+              })
+            } else {
+              Ok(())
+            }
+
           });
-          handle.join().unwrap()?;
+          handle.join().unwrap();
         }
         ui_thinking_cloned_for_closure.store(false, Ordering::Relaxed);
 

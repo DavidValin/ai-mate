@@ -97,10 +97,11 @@ impl Tool for StoreMemoryTool {
           "properties": {
             "subject": {
               "type": "string",
-              "description": "A noun. This is the subject of the memory."
+              "description": "the person or thing performing the action."
             },
             "predicate": {
               "type": "string",
+              "description": "the verb",
               "enum": [
                 "believed",
                 "assumed",
@@ -153,7 +154,7 @@ impl Tool for StoreMemoryTool {
             },
             "object": {
               "type": "string",
-              "description": "A noun. This is the object to which the predicate applies to."
+              "description": "the person or thing that receives the action of the verb"
             },
             "location": {
               "type": "string",
