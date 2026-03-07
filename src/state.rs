@@ -14,7 +14,7 @@ pub struct UiState {
   pub playing: Arc<AtomicBool>,
   pub agent_speaking: Arc<AtomicBool>, // voice activity flag
   pub peak: Arc<Mutex<f32>>,           // current audio peak
-  pub spinner_index: usize
+  pub spinner_index: usize,
 }
 
 #[derive(Debug)]
@@ -42,16 +42,16 @@ pub struct AppState {
 }
 
 impl AppState {
-  pub fn new_with_voice(voice: String) -> Self {
+  pub fn new() -> Self {
     Self {
       conversation_paused: Arc::new(AtomicBool::new(false)),
-      voice: Arc::new(Mutex::new(voice)),
+      voice: Arc::new(Mutex::new(String::new())),
       ui: UiState {
         thinking: Arc::new(AtomicBool::new(false)),
         playing: Arc::new(AtomicBool::new(false)),
         agent_speaking: Arc::new(AtomicBool::new(false)), // tts synthesizing
         peak: Arc::new(Mutex::new(0.0)),
-        spinner_index: 0
+        spinner_index: 0,
       },
       speed: AtomicU32::new(12),
       conversation_history: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
@@ -69,6 +69,14 @@ impl AppState {
       recording_paused: Arc::new(AtomicBool::new(false)),
       processing_response: Arc::new(AtomicBool::new(false)),
     }
+  }
+
+  /// Create a new AppState and initialize the voice field with the provided value.
+  pub fn with_voice(initial_voice: String) -> Self {
+    let mut state = Self::new();
+    // SAFETY: we have exclusive access to the Mutex here.
+    *state.voice.lock().unwrap() = initial_voice;
+    state
   }
 }
 

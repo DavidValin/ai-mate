@@ -82,7 +82,7 @@ pub fn tts_thread(
   tx_play: Sender<crate::audio::AudioChunk>,
   stop_all_rx: Receiver<()>,
   interrupt_counter: Arc<AtomicU64>,
-  args: crate::config::Args,
+  settings: crate::config::AgentSettings,
   rx_tts: Receiver<(String, u64)>,
   stop_play_tx: Sender<()>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -95,11 +95,14 @@ pub fn tts_thread(
           Err(_) => break,
         };
         let voice = voice_state.lock().unwrap().clone();
+        crate::log::log("info", settings.tts.as_str());
+        crate::log::log("info", settings.language.as_str());
+        
         let outcome = crate::tts::speak(
           &phrase,
-          args.tts.as_str(),
-          args.opentts_base_url.as_str(),
-          args.language.as_str(),
+          settings.tts.as_str(),
+          crate::config::OPENTTS_BASE_URL_DEFAULT,
+          settings.language.as_str(),
           voice.as_str(),
           out_sample_rate,
           tx_play.clone(),
