@@ -79,13 +79,13 @@ pub async fn llama_server_stream_response_into(
     let mut out = Vec::new();
     match server_type {
       "llama-server" => {
+        out.push((format!("http://{}/v1/chat/completions", base), ApiKind::OaiChat));
+        out.push((format!("http://{}/api/chat", base), ApiKind::OaiChat));
         out.push((format!("http://{}/completion", base), ApiKind::LegacyCompletion));
-        out.push((format!("http://{}/api/chat", base), ApiKind::OllamaChat));
       }
       "ollama" => {
         out.push((format!("http://{}/v1/generate", base), ApiKind::OllamaGenerate));
         out.push((format!("http://{}/api/chat", base), ApiKind::OllamaChat));
-        out.push((format!("http://{}/v1/chat/completions", base), ApiKind::OaiChat));
         out.push((format!("http://{}/completion", base), ApiKind::LegacyCompletion));
       }
       _ => {

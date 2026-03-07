@@ -331,7 +331,10 @@ pub fn load_settings(
     if let Some(v) = args.model.clone() {
       agent.model = v;
     }
-    agent.ptt = args.ptt.to_string();
+    let ptt = args.ptt.clone();
+    if ptt {
+      agent.ptt = ptt.to_string();
+    }
     if let Some(v) = args.whisper_model_path.clone() {
       agent.whisper_model_path = v;
     }

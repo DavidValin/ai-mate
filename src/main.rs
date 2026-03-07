@@ -93,7 +93,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .unwrap_or_else(|| agents[0].clone());
 
   // Initialize AppState with the selected voice
-  let state: Arc<state::AppState> = Arc::new(state::AppState::with_voice(settings.voice.clone()));
+   let state: Arc<state::AppState> = Arc::new(state::AppState::with_agent(settings.clone(), agents.clone()));
+
   state::GLOBAL_STATE.set(state.clone()).unwrap();
   let ui = state.ui.clone();
   let status_line = state.status_line.clone();
@@ -194,7 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   
   let recording_paused = state.recording_paused.clone();
   let recording_paused_for_record = recording_paused.clone();
-  if args.ptt {
+  if state.ptt.load(Ordering::Relaxed) {
     recording_paused.store(true, Ordering::Relaxed);
   }
   let interrupt_counter = state.interrupt_counter.clone();
@@ -211,7 +212,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // ---------------------------------------------------
 
   let stop_play_tx_for_tts = stop_play_tx.clone();
-  let settings_for_tts = settings.clone();
   let tts_handle = thread::spawn({
   let voice_state = state.voice.clone();
   let out_sample_rate = out_sample_rate.clone();
@@ -226,7 +226,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tx_play,
         stop_all_rx,
         interrupt_counter,
-        settings_for_tts.clone(),
         rx_tts,
         stop_play_tx_for_tts,
       )
@@ -339,12 +338,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // ---------------------------------------------------
   // Thread: keyboard
   // ---------------------------------------------------
-  let state_for_key = state.clone();
-  let paused_for_key = paused.clone();
   let recording_paused_for_key = recording_paused.clone();
-  let voice_for_key = state_for_key.voice.clone();
-  let settings_tts_for_key = settings.tts.clone();
-  let settings_language_for_key = settings.language.clone();
   let stop_all_tx_for_key = stop_all_tx.clone();
   let stop_play_tx_for_key = stop_play_tx.clone();
   let key_handle = thread::spawn({
@@ -352,14 +346,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       keyboard::keyboard_thread(
         stop_all_tx_for_key.clone(),
         stop_all_rx_for_keyboard.clone(),
-        paused_for_key.clone(),
         recording_paused_for_key.clone(),
-        voice_for_key.clone(),
-        settings_tts_for_key.clone(),
-        settings_language_for_key.clone(),
         stop_play_tx_for_key.clone(),
         interrupt_counter.clone(),
-        args.ptt,
+        state.ptt.load(Ordering::Relaxed),
       )
     }
   });

@@ -323,7 +323,9 @@ fn render_bottom_bar<W: Write>(
   y: u16,
 ) -> String {
   let state = GLOBAL_STATE.get().expect("AppState not initialized");
+  let agent_name = state.agent_name.lock().unwrap().clone();
   let speak = ui_state.agent_speaking.load(Ordering::Relaxed);
+
   let think = ui_state.thinking.load(Ordering::Relaxed);
   let play = ui_state.playing.load(Ordering::Relaxed);
   let recording_paused = state.recording_paused.load(Ordering::Relaxed);
@@ -374,7 +376,7 @@ fn render_bottom_bar<W: Write>(
     },
   );
 
-  let combined_status = format!("{} {} ", voice_str, internal_status);
+  let combined_status = format!("{} {} ({}) ", voice_str, internal_status, agent_name);
 
   let cols = crossterm::terminal::size().unwrap_or((80, 24)).0 as usize;
 
@@ -433,7 +435,6 @@ fn render_bottom_bar<W: Write>(
   out.flush().unwrap();
   full_bar
 }
-
 
 fn get_visible_len_for(s: &str) -> usize {
   let mut len = 0usize;

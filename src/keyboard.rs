@@ -2,16 +2,15 @@
 //  Keyboard handling
 // ------------------------------------------------------------------
 
-use crate::state::{GLOBAL_STATE, decrease_voice_speed, increase_voice_speed};
-use crate::tts;
+use crate::state::{decrease_voice_speed, increase_voice_speed, GLOBAL_STATE};
 use crossbeam_channel::{Receiver, Sender};
 use crossterm::{
   event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
   terminal,
 };
 use std::sync::{
-  Arc, Mutex,
   atomic::{AtomicBool, AtomicU64, Ordering},
+  Arc,
 };
 use std::time::{Duration, Instant};
 
@@ -21,11 +20,7 @@ use std::time::{Duration, Instant};
 pub fn keyboard_thread(
   stop_all_tx: Sender<()>,
   stop_all_rx: Receiver<()>,
-  _paused: Arc<AtomicBool>,
   recording_paused: Arc<AtomicBool>,
-  voice_state: Arc<Mutex<String>>,
-  tts: String,
-  language: String,
   stop_play_tx: Sender<()>,
   interrupt_counter: Arc<AtomicU64>,
   ptt: bool,
@@ -115,25 +110,61 @@ pub fn keyboard_thread(
             decrease_voice_speed();
           }
 
-          // swap to previous voice
+          // switch to previous agent
           KeyCode::Left => {
-            let voices = tts::get_voices_for(&tts, &language);
-            let mut current = voice_state.lock().unwrap();
-            if !voices.is_empty() {
-              let pos = voices.iter().position(|v| *v == *current).unwrap_or(0);
-              let new_idx = if pos == 0 { voices.len() - 1 } else { pos - 1 };
-              *current = voices[new_idx].to_string();
+            let state = GLOBAL_STATE.get().unwrap();
+            let agents = state.agents.as_ref();
+            let current_name = state.agent_name.lock().unwrap().clone();
+            let pos = agents
+              .iter()
+              .position(|a| a.name == current_name)
+              .unwrap_or(0);
+            let new_idx = if pos == 0 { agents.len() - 1 } else { pos - 1 };
+            let new_agent = &agents[new_idx];
+            *state.voice.lock().unwrap() = new_agent.voice.clone();
+            *state.agent_name.lock().unwrap() = new_agent.name.clone();
+            *state.tts.lock().unwrap() = new_agent.tts.clone();
+            *state.language.lock().unwrap() = new_agent.language.clone();
+            *state.provider.lock().unwrap() = new_agent.provider.clone();
+            *state.baseurl.lock().unwrap() = new_agent.baseurl.clone();
+            *state.model.lock().unwrap() = new_agent.model.clone();
+            state.ptt.store(
+              new_agent.ptt.trim().eq_ignore_ascii_case("true"),
+              Ordering::Relaxed,
+            );
+            if state.ptt.load(Ordering::Relaxed) {
+              recording_paused.store(true, Ordering::Relaxed);
+            } else {
+              recording_paused.store(false, Ordering::Relaxed);
             }
           }
 
-          // swap to next voice
+          // switch to next agent
           KeyCode::Right => {
-            let voices = tts::get_voices_for(&tts, &language);
-            let mut current = voice_state.lock().unwrap();
-            if !voices.is_empty() {
-              let pos = voices.iter().position(|v| *v == *current).unwrap_or(0);
-              let new_idx = (pos + 1) % voices.len();
-              *current = voices[new_idx].to_string();
+            let state = GLOBAL_STATE.get().unwrap();
+            let agents = state.agents.as_ref();
+            let current_name = state.agent_name.lock().unwrap().clone();
+            let pos = agents
+              .iter()
+              .position(|a| a.name == current_name)
+              .unwrap_or(0);
+            let new_idx = (pos + 1) % agents.len();
+            let new_agent = &agents[new_idx];
+            *state.voice.lock().unwrap() = new_agent.voice.clone();
+            *state.agent_name.lock().unwrap() = new_agent.name.clone();
+            *state.tts.lock().unwrap() = new_agent.tts.clone();
+            *state.language.lock().unwrap() = new_agent.language.clone();
+            *state.provider.lock().unwrap() = new_agent.provider.clone();
+            *state.baseurl.lock().unwrap() = new_agent.baseurl.clone();
+            *state.model.lock().unwrap() = new_agent.model.clone();
+            state.ptt.store(
+              new_agent.ptt.trim().eq_ignore_ascii_case("true"),
+              Ordering::Relaxed,
+            );
+            if state.ptt.load(Ordering::Relaxed) {
+              recording_paused.store(true, Ordering::Relaxed);
+            } else {
+              recording_paused.store(false, Ordering::Relaxed);
             }
           }
           _ => {
