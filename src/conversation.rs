@@ -34,14 +34,14 @@ pub fn conversation_thread(
   stop_all_tx: Sender<()>,
   interrupt_counter: Arc<AtomicU64>,
   model_path: String,
-  args: crate::config::Args,
+  settings: crate::config::AgentSettings,
   ui: crate::state::UiState,
   conversation_history: std::sync::Arc<std::sync::Mutex<String>>,
   tx_ui: Sender<String>,
   tts_tx: Sender<(String, u64)>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ctx = init_whisper_context(&model_path);
-  crate::log::log("info", &format!("LLM model: {}", args.model));
+  crate::log::log("info", &format!("LLM model: {}", settings.model));
 
   loop {
     select! {
@@ -73,7 +73,8 @@ pub fn conversation_thread(
         crate::log::log("debug", &format!("Received audio chunk of len {}", utt.data.len()));
         crate::log::log("debug", &format!("Received mono f32 pcm len {}", pcm_f32.len()));
         crate::log::log("debug", "Transcribing utterance...");
-        let user_text = crate::stt::whisper_transcribe_with_ctx(&ctx, &mono_f32, utt.sample_rate, &args.language)?;
+        let state = GLOBAL_STATE.get().expect("AppState not initialized");
+        let user_text = crate::stt::whisper_transcribe_with_ctx(&ctx, &mono_f32, utt.sample_rate, &state.language.lock().unwrap())?;
         crate::log::log("info", &format!("Transcribed: '{}'", user_text));
         let prompt = format!("{}\n{}\n", conversation_history.lock().unwrap(), user_text);
         let cleaned_prompt = crate::util::strip_ansi(&prompt);
@@ -155,13 +156,13 @@ pub fn conversation_thread(
 
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let stop_all_rx_cloned = stop_all_rx.clone();
-        let ollama_url = args.ollama_url.clone();
+        let ollama_url = state.baseurl.lock().unwrap().clone();
         let interrupt_counter_cloned = interrupt_counter.clone();
-        let llama_url = args.llama_server_url.clone();
-        let model = args.model.clone();
-        let engine_type = args.llm.clone();
+        let llama_url = state.baseurl.lock().unwrap().clone();
+        let model = state.model.lock().unwrap().clone();
+        let engine_type = state.provider.lock().unwrap().clone();
 
-        if args.llm == "llama-server" {
+        if *state.provider.lock().unwrap() == "llama-server" {
           let on_piece_cloned = std::sync::Arc::new(std::sync::Mutex::new(on_piece));
           let handle = std::thread::spawn(move || {
             rt.block_on(async {
@@ -212,7 +213,6 @@ pub fn conversation_thread(
           // ignore join result to prevent panic on llama server error
           let _join_result = handle.join();
         }
-
         ui_thinking_cloned_for_closure.store(false, Ordering::Relaxed);
         if let Some(phrase) = speaker_arc.lock().unwrap().flush() {
           let phrase_clone = phrase.clone();

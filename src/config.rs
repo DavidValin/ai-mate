@@ -1,132 +1,409 @@
 // ------------------------------------------------------------------
-//  Configuration
+//  Config
 // ------------------------------------------------------------------
 
+use crate::tts;
 use crate::util::get_user_home_path;
 use clap::Parser;
-use cpal::Device;
 use cpal::traits::DeviceTrait;
+use cpal::Device;
+use serde::Deserialize;
+use serde_ini::from_str;
+use std::fs::{create_dir_all, read_to_string, File};
+use std::io::Write;
+use std::panic;
+use std::process;
+use std::thread::{self};
+use std::time::Duration;
+use url::Url;
 
 // API
 // ------------------------------------------------------------------
 
+#[derive(Debug, Deserialize)]
+pub struct Settings {
+  pub agents: Vec<AgentSettings>,
+  pub default_agent: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AgentSettings {
+  pub name: String,
+  pub language: String,
+  pub tts: String,
+  pub voice: String,
+  pub provider: String,
+  pub baseurl: String,
+  pub model: String,
+  pub system_prompt: String,
+  pub memory_enabled: String,
+  pub memory_available_predicates: String,
+  pub available_tools: String,
+  pub ptt: String,
+  pub whisper_model_path: String,
+  pub sound_threshold_peak: f32,
+  pub end_silence_ms: u64,
+}
+
 #[derive(Parser, Debug, Clone)]
-#[command(
-  author = env!("CARGO_PKG_AUTHORS"),
-  version,
-  long_about = concat!(
-    "\n\n",
-    env!("CARGO_PKG_DESCRIPTION"),
-    "\n\nHomepage: ",
-    env!("CARGO_PKG_HOMEPAGE")
-  )
-)]
 pub struct Args {
-  /// Enable verbose logging (prints audio device/config info and other diagnostics)
   #[arg(long, action = clap::ArgAction::SetTrue)]
   pub verbose: bool,
 
-  /// LLM backend (ollama or llama-server)
-  #[arg(
-       long,
-       default_value = "ollama",
-       value_parser = clap::builder::PossibleValuesParser::new(&["ollama", "llama-server"]),
-   )]
-  pub llm: String,
+  #[arg(long, default_value = "main agent", value_parser=validate_agent_name)]
+  pub agent: String,
 
-  /// Text-to-speech backend (e.g., kokoro, opentts)
-  #[arg(
-      long,
-      default_value = "kokoro",
-      env = "TTS",
-      value_parser = clap::builder::PossibleValuesParser::new(&["kokoro", "opentts"])
-  )]
-  pub tts: String,
+  #[arg(long)]
+  pub llm: Option<String>,
 
-  /// Whisper model file path
-  #[arg(long, default_value = WHISPER_MODEL_PATH, env = "WHISPER_MODEL_PATH")]
-  pub whisper_model_path: String,
+  #[arg(long)]
+  pub tts: Option<String>,
 
-  /// Language code for TTS and Whisper (e.g., en, es, de)
-  #[arg(long, default_value = "en", env = "LANGUAGE")]
-  pub language: String,
+  #[arg(long)]
+  pub whisper_model_path: Option<String>,
 
-  /// Voice to use for TTS
-  #[arg(long, env = "VOICE")]
+  #[arg(long)]
+  pub language: Option<String>,
+
+  #[arg(long)]
   pub voice: Option<String>,
 
-  /// Peak threshold for detecting user speech while assistant is speaking (0..1)
-  #[arg(long, default_value_t = SOUND_THRESHOLD_PEAK_DEFAULT, env = "SOUND_THRESHOLD_PEAK")]
-  pub sound_threshold_peak: f32,
+  #[arg(long)]
+  pub sound_threshold_peak: Option<f32>,
 
-  /// End an utterance after this much continuous silence (ms)
-  #[arg(long, default_value_t = END_SILENCE_MS_DEFAULT, env = "END_SILENCE_MS")]
-  pub end_silence_ms: u64,
+  #[arg(long)]
+  pub end_silence_ms: Option<u64>,
 
-  /// Ollama generate endpoint URL
-  #[arg(long, default_value = OLLAMA_URL_DEFAULT, env = "OLLAMA_URL")]
-  pub ollama_url: String,
+  #[arg(long)]
+  pub ollama_url: Option<String>,
 
-  /// Ollama model name
-  #[arg(long, default_value = MODEL_DEFAULT, env = "MODEL")]
-  pub model: String,
+  #[arg(long)]
+  pub model: Option<String>,
 
-  /// Llama‑Server URL (used when --llm=llama-server)
-  #[arg(
-    long,
-    default_value = LLAMASERVER_URL_DEFAULT,
-    env = "LLAMA_SERVER_URL"
-  )]
-  pub llama_server_url: String,
+  #[arg(long)]
+  pub llama_server_url: Option<String>,
 
-  /// OpenTTS base URL (we append &text=...)
-  #[arg(long, default_value = OPENTTS_BASE_URL_DEFAULT, env = "OPENTTS_BASE_URL")]
-  pub opentts_base_url: String,
+  #[arg(long)]
+  pub opentts_base_url: Option<String>,
 
-  // Retrieves the list of voices for each TTS system
   #[arg(long, action=clap::ArgAction::SetTrue)]
   pub list_voices: bool,
 
-  // Push to Talk mode (PTT): while in this mode, press <SPACE> while talking, and release it to submit your request
   #[arg(long, action=clap::ArgAction::SetTrue)]
   pub ptt: bool,
 }
 
-// CLI parameters default values ---------------------------------------------------
-
-const SOUND_THRESHOLD_PEAK_DEFAULT: f32 = 0.10;
+// internal static values
 pub const HANGOVER_MS_DEFAULT: u64 = 300;
-const END_SILENCE_MS_DEFAULT: u64 = 1200;
 pub const MIN_UTTERANCE_MS_DEFAULT: u64 = 300;
-pub const OLLAMA_URL_DEFAULT: &str = "http://localhost:11434";
-pub const MODEL_DEFAULT: &str = "llama3.2:3b";
-pub const LLAMASERVER_URL_DEFAULT: &str = "http://127.0.0.1:8080";
-pub const WHISPER_MODEL_PATH: &str = "~/.whisper-models/ggml-tiny.bin";
-const OPENTTS_BASE_URL_DEFAULT: &str = "http://127.0.0.1:5500/api/tts?&vocoder=high&denoiserStrength=0.005&&speakerId=&ssml=false&ssmlNumbers=true&ssmlDates=true&ssmlCurrency=true&cache=false";
+pub const OPENTTS_BASE_URL_DEFAULT: &str = "http://127.0.0.1:5500/api/tts?&vocoder=high&denoiserStrength=0.005&&speakerId=&ssml=false&ssmlNumbers=true&ssmlDates=true&ssmlCurrency=true&cache=false";
 
-impl Args {
-  /// Resolve the whisper model path, expanding ~ to home directory.
-  pub fn resolved_whisper_model_path(&self) -> String {
-    if self.whisper_model_path.starts_with("~") {
-      if let Some(home) = get_user_home_path() {
-        let rel = self.whisper_model_path.trim_start_matches("~");
-        let mut p = home;
-        p.push(&rel[1..]);
-        p.to_string_lossy().into_owned()
-      } else {
-        self.whisper_model_path.clone()
-      }
+pub fn resolved_whisper_model_path(args: &Args) -> String {
+  let path = args
+    .whisper_model_path
+    .clone()
+    .unwrap_or_else(|| "~/.whisper-models/ggml-tiny.bin".to_string());
+  if path.starts_with("~") {
+    if let Some(home) = get_user_home_path() {
+      let rel = path.trim_start_matches("~");
+      let mut p = home;
+      p.push(&rel[1..]);
+      p.to_string_lossy().into_owned()
     } else {
-      self.whisper_model_path.clone()
+      path
     }
+  } else {
+    path
   }
 }
 
-/// Pick an input configuration that matches the preferred sample rate as closely as possible.
-///
-/// This helper selects a supported stream configuration from the device, preferring
-/// formats that are compatible with the desired sample rate. It returns the first
-/// configuration after sorting by format, channel count, and sample‑rate distance.
+pub fn load_settings(
+  settings_path: &std::path::Path,
+  args: &Args,
+) -> Result<Vec<AgentSettings>, Box<dyn std::error::Error + Send + Sync>> {
+  // Read the whole INI file
+  let ini_contents = read_to_string(settings_path)?;
+  // Split on the section header "[agent]"
+  let blocks: Vec<&str> = ini_contents
+    .split("[agent]")
+    .filter(|b| !b.trim().is_empty())
+    .collect();
+
+  let mut agents = Vec::new();
+  let mut errors: Vec<String> = Vec::new();
+  for block in blocks {
+    // prepend a dummy header so serde_ini can parse it
+    let section = block.trim();
+    let agent: AgentSettings = match panic::catch_unwind(|| from_str::<AgentSettings>(&section)) {
+      Ok(Ok(a)) => a,
+      Ok(Err(e)) => {
+        crate::log::log("error", &format!("Failed to parse agent section: {}\n", e));
+        thread::sleep(Duration::from_millis(30));
+        return Err(Box::new(e));
+      }
+      Err(_) => {
+        crate::log::log("error", "Panic while parsing agent section");
+        thread::sleep(Duration::from_millis(30));
+        return Err("panic while parsing agent section".into());
+      }
+    };
+    // Validate individual agent
+    if let Err(e) = validate_agent_name(&agent.name) {
+      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+      thread::sleep(Duration::from_millis(30));
+      process::exit(0);
+    }
+    if let Some(tts) = &args.tts {
+      if let Err(e) = validate_language(&agent.language, tts) {
+        crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+        thread::sleep(Duration::from_millis(30));
+        process::exit(0);
+      }
+    }
+    if let Some(tts) = &args.tts {
+      if let Err(e) = validate_voice(&agent.voice, &agent.language, tts) {
+        crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+        thread::sleep(Duration::from_millis(30));
+        process::exit(0);
+      }
+    }
+
+    if let Err(e) = validate_provider(&agent.provider) {
+      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+      thread::sleep(Duration::from_millis(30));
+      process::exit(0);
+    }
+    if let Err(e) = validate_baseurl(&agent.baseurl) {
+      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+      thread::sleep(Duration::from_millis(30));
+      process::exit(0);
+    }
+    if let Err(e) = validate_model(&agent.model) {
+      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+      thread::sleep(Duration::from_millis(30));
+      process::exit(0);
+    }
+    if let Err(e) = validate_system_prompt(&agent.system_prompt) {
+      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+      thread::sleep(Duration::from_millis(30));
+      process::exit(0);
+    }
+    if let Err(e) = validate_sound_threshold_peak(agent.sound_threshold_peak) {
+      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+      thread::sleep(Duration::from_millis(30));
+      process::exit(0);
+    }
+    if let Err(e) = validate_end_silence_ms(agent.end_silence_ms) {
+      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+      thread::sleep(Duration::from_millis(30));
+      process::exit(0);
+    }
+    if let Err(e) = validate_tts(&agent.tts) {
+      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
+      thread::sleep(Duration::from_millis(30));
+      process::exit(0);
+    }
+    agents.push(agent);
+  }
+
+  if !errors.is_empty() {
+    for err in &errors {
+      println!("Error: {}", err);
+    }
+    return Err(errors.join("\n").into());
+  }
+
+  if agents.is_empty() {
+    return Err("No [agent] sections found in settings file".into());
+  }
+
+  // Validate CLI args against the loaded agents
+  if let Err(e) = validate_agent_name(&args.agent) {
+    return Err(e.into());
+  }
+  if let Some(lang) = &args.language {
+    if let Some(tts) = &args.tts {
+      if let Err(e) = validate_language(lang, tts) {
+        return Err(e.into());
+      }
+    }
+  }
+  if let Some(v) = &args.voice {
+    if let Some(lang) = &args.language {
+      if let Some(tts) = &args.tts {
+        if let Err(e) = validate_voice(v, lang, tts) {
+          return Err(e.into());
+        }
+      }
+    }
+  }
+  if let Some(v) = &args.llm {
+    if let Err(e) = validate_provider(v) {
+      return Err(e.into());
+    }
+  }
+  if let Some(v) = &args.llm {
+    if v == "ollama" {
+      if let Some(u) = &args.ollama_url {
+        if let Err(e) = validate_baseurl(u) {
+          return Err(e.into());
+        }
+      }
+    } else {
+      if let Some(u) = &args.llama_server_url {
+        if let Err(e) = validate_baseurl(u) {
+          return Err(e.into());
+        }
+      }
+    }
+  }
+  // validate optional model if provided
+  if let Some(v) = &args.model {
+    if let Err(e) = validate_model(v) {
+      return Err(e.into());
+    }
+  }
+  // Validate optional CLI arguments if provided
+  if let Some(v) = args.sound_threshold_peak {
+    if let Err(e) = validate_sound_threshold_peak(v) {
+      return Err(e.into());
+    }
+  }
+  if let Some(v) = args.end_silence_ms {
+    if let Err(e) = validate_end_silence_ms(v) {
+      return Err(e.into());
+    }
+  }
+  if let Some(v) = &args.tts {
+    if let Err(e) = validate_tts(v) {
+      return Err(e.into());
+    }
+  }
+  if let Some(v) = &args.llm {
+    if let Err(e) = validate_provider(v) {
+      return Err(e.into());
+    }
+  }
+  if let Some(v) = &args.llm {
+    if v == "ollama" {
+      if let Some(u) = &args.ollama_url {
+        if let Err(e) = validate_baseurl(u) {
+          return Err(e.into());
+        }
+      }
+    } else {
+      if let Some(u) = &args.llama_server_url {
+        if let Err(e) = validate_baseurl(u) {
+          return Err(e.into());
+        }
+      }
+    }
+  }
+  if let Some(v) = &args.language {
+    if let Some(tts) = &args.tts {
+      if let Err(e) = validate_language(v, tts) {
+        return Err(e.into());
+      }
+    }
+  }
+  // Merge args into each agent's settings
+  for agent in agents.iter_mut() {
+    if let Some(v) = args.language.clone() {
+      agent.language = v;
+    }
+    if let Some(v) = args.tts.clone() {
+      agent.tts = v;
+    }
+    if let Some(v) = args.llm.clone() {
+      agent.provider = v;
+    }
+    if let Some(v) = args.llm.clone() {
+      if v == "ollama" {
+        if let Some(u) = args.ollama_url.clone() {
+          agent.baseurl = u;
+        }
+      } else {
+        if let Some(u) = args.llama_server_url.clone() {
+          agent.baseurl = u;
+        }
+      }
+    }
+    if let Some(v) = args.model.clone() {
+      agent.model = v;
+    }
+    let ptt = args.ptt.clone();
+    if ptt {
+      agent.ptt = ptt.to_string();
+    }
+    if let Some(v) = args.whisper_model_path.clone() {
+      agent.whisper_model_path = v;
+    }
+    if let Some(v) = args.sound_threshold_peak {
+      agent.sound_threshold_peak = v;
+    }
+    if let Some(v) = args.end_silence_ms {
+      agent.end_silence_ms = v;
+    }
+    if let Some(v) = &args.voice {
+      agent.voice = v.clone();
+    }
+  }
+
+  Ok(agents)
+}
+
+pub fn ensure_settings_file() -> Result<(), Box<dyn std::error::Error>> {
+  // Determine home directory
+  let home = get_user_home_path().ok_or("Unable to determine home directory")?;
+  let ai_mate_dir = home.join(".ai-mate");
+  // Ensure directory exists
+  if !ai_mate_dir.exists() {
+    create_dir_all(&ai_mate_dir)?;
+  }
+  let settings_path = ai_mate_dir.join("settings");
+  // If file already exists, skip writing
+  if settings_path.exists() {
+    return Ok(());
+  }
+  let content = r#"[agent]
+name = main agent
+language = en
+voice = bf_alice
+provider = ollama
+baseurl = http://127.0.0.1:11434
+model = llama3.2:3b
+system_prompt = You are a smart ai assistant. You reply to the user with the necessary information following the next rules: Avoid suggestions unless they contribute to the specific user request. If the user hasn't requested anything specific ask the exact questions to find out exactly what he needs assistance with. Replies are no longer than 20 words unless a longer explanation is required.
+sound_threshold_peak = 0.1
+end_silence_ms = 2000
+tts = kokoro
+ptt = false
+whisper_model_path = ~/.whisper-models/ggml-tiny.bin
+memory_enabled = true
+memory_available_predicates = 
+available_tools = read_file, list_files, find_in_files, webfetch
+
+[agent]
+name = assistant
+language = en
+voice = bf_alice
+provider = ollama
+baseurl = http://127.0.0.1:11434
+model = llama3.2:3b
+system_prompt = Vous êtes un assistant intelligent.
+sound_threshold_peak = 0.1
+end_silence_ms = 2000
+tts = kokoro
+ptt = false
+whisper_model_path = ~/.whisper-models/ggml-tiny.bin
+memory_enabled = true
+memory_available_predicates = 
+available_tools = read_file, list_files, find_in_files, webfetch
+"#;
+  let mut file = File::create(&settings_path)?;
+  file.write_all(content.as_bytes())?;
+  Ok(())
+}
+
 pub fn pick_input_config(
   device: &Device,
   preferred_sr: u32,
@@ -161,4 +438,136 @@ pub fn pick_input_config(
     .into_iter()
     .next()
     .ok_or_else(|| "no supported input configs".into())
+}
+
+// PRIVATE
+// ------------------------------------------------------------------
+
+fn validate_agent_name(name: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+  let len = name.chars().count();
+  if len < 1 || len > 200 {
+    Err(Box::new(std::io::Error::new(
+      std::io::ErrorKind::InvalidInput,
+      "agent must be between 1 and 200 characters",
+    )))
+  } else {
+    Ok(name.to_string())
+  }
+}
+
+fn validate_language(
+  language: &str,
+  tts: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  let lang_clean = language.trim_matches('"');
+  let langs = tts::get_all_available_languages();
+  if !langs.contains(&lang_clean) {
+    let err = format!("Unsupported language: {}", language);
+    crate::log::log("error", &err);
+    return Err(err.into());
+  }
+  let voices = tts::get_voices_for(tts, lang_clean);
+  if voices.is_empty() {
+    let err = format!("No voices for language {} and TTS {}", language, tts);
+    crate::log::log("error", &err);
+    return Err(err.into());
+  }
+
+  // Ensure the selected TTS engine supports this language
+  let voices = tts::get_voices_for(tts, lang_clean);
+  if voices.is_empty() {
+    let err = format!(
+      "No available voices for TTS '{}' and language '{}'",
+      tts, language
+    );
+    crate::log::log("error", &err);
+    return Err(err.into());
+  }
+  Ok(())
+}
+
+fn validate_voice(
+  voice: &str,
+  language: &str,
+  tts: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  let lang_clean = language.trim_matches('"');
+  let voices = tts::get_voices_for(tts, lang_clean);
+  if voices.is_empty() {
+    return Err(
+      format!(
+        "No available voices for TTS '{}' and language '{}'",
+        tts, language,
+      )
+      .into(),
+    );
+  }
+
+  let voice_clean = voice.trim_matches('"');
+  if !voices.contains(&voice_clean) {
+    return Err(format!("Unsupported voice '{}' for language {}", voice, language).into());
+  }
+  Ok(())
+}
+
+fn validate_tts(tts: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  if tts != "kokoro" && tts != "opentts" {
+    return Err(format!("Invalid tts '{}' . Must be 'kokoro' or 'opentts'", tts).into());
+  }
+  Ok(())
+}
+
+fn validate_provider(provider: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  if provider != "ollama" && provider != "llama-server" {
+    return Err(
+      format!(
+        "Invalid provider '{}' . Must be 'ollama' or 'llama-server'",
+        provider
+      )
+      .into(),
+    );
+  }
+  Ok(())
+}
+
+fn validate_baseurl(baseurl: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  let url = Url::parse(baseurl).map_err(|e| format!("Invalid baseurl '{}': {}", baseurl, e))?;
+  if url.path() != "/" || !url.has_host() {
+    return Err(format!("baseurl must have a host and no path: {}", baseurl).into());
+  }
+  Ok(())
+}
+
+fn validate_model(model: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  if model.is_empty() || model.len() > 200 {
+    return Err("'model' must be 1-200 characters".into());
+  }
+  Ok(())
+}
+
+fn validate_system_prompt(prompt: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  if prompt.is_empty() || prompt.len() > 20000 {
+    return Err("'system_prompt' must be 0-20000 characters".into());
+  }
+  Ok(())
+}
+
+fn validate_sound_threshold_peak(
+  value: f32,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  if value < 0.0 || value > 1.0 {
+    return Err("'sound_threshold_peak' must be between 0.0 and 1.0".into());
+  }
+  let scaled = (value * 1000.0).round();
+  if (scaled / 1000.0 - value).abs() > 1e-6 {
+    return Err("'sound_threshold_peak' must have at most 3 decimal places".into());
+  }
+  Ok(())
+}
+
+fn validate_end_silence_ms(value: u64) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  if value < 1 || value > 20000 {
+    return Err("'end_silence_ms' must be between 1 and 20000".into());
+  }
+  Ok(())
 }
