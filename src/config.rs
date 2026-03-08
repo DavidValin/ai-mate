@@ -208,7 +208,7 @@ pub fn load_settings(
 
   if !errors.is_empty() {
     for err in &errors {
-      println!("Error: {}", err);
+      crate::log::log("error", &format!("Error: {}", err));
     }
     return Err(errors.join("\n").into());
   }
