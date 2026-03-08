@@ -348,8 +348,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         stop_all_rx_for_keyboard.clone(),
         recording_paused_for_key.clone(),
         stop_play_tx_for_key.clone(),
-        interrupt_counter.clone(),
-        state.ptt.load(Ordering::Relaxed),
+        interrupt_counter.clone()
       )
     }
   });

@@ -22,8 +22,7 @@ pub fn keyboard_thread(
   stop_all_rx: Receiver<()>,
   recording_paused: Arc<AtomicBool>,
   stop_play_tx: Sender<()>,
-  interrupt_counter: Arc<AtomicU64>,
-  ptt: bool,
+  interrupt_counter: Arc<AtomicU64>
 ) {
   // Raw mode lets us capture single key presses (space to pause/resume).
   let _ = terminal::enable_raw_mode();
@@ -33,6 +32,8 @@ pub fn keyboard_thread(
   let mut space_pressed = false;
   let mut last_space_time: Option<Instant> = None;
   loop {
+    let state = GLOBAL_STATE.get().unwrap();
+
     if stop_all_rx.try_recv().is_ok() {
       break;
     }
@@ -40,6 +41,7 @@ pub fn keyboard_thread(
     // Poll so we can also respond to stop_all.
     if event::poll(Duration::from_millis(50)).unwrap_or(false) {
       if let Ok(Event::Key(k)) = event::read() {
+
         // Ctrl+C should exit immediately
         if k.modifiers.contains(KeyModifiers::CONTROL) {
           if let KeyCode::Char('c') | KeyCode::Char('C') = k.code {
@@ -50,7 +52,7 @@ pub fn keyboard_thread(
 
         match k.code {
           KeyCode::Char(' ') => {
-            if ptt {
+            if state.ptt.load(Ordering::Relaxed) {
               crate::log::log("debug", &format!("SPACE event kind={:?}", k.kind));
               last_space_time = Some(Instant::now());
               match k.kind {
@@ -112,7 +114,6 @@ pub fn keyboard_thread(
 
           // switch to previous agent
           KeyCode::Left => {
-            let state = GLOBAL_STATE.get().unwrap();
             let agents = state.agents.as_ref();
             let current_name = state.agent_name.lock().unwrap().clone();
             let pos = agents
@@ -181,7 +182,7 @@ pub fn keyboard_thread(
     }
 
     // If space was pressed but no new space event for a short period, consider it released (only when PTT)
-    if ptt && space_pressed {
+    if state.ptt.load(Ordering::Relaxed) && space_pressed {
       if let Some(t) = last_space_time {
         if Instant::now().duration_since(t) > Duration::from_millis(500) {
           recording_paused.store(true, Ordering::Relaxed);
