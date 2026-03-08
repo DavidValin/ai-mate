@@ -18,11 +18,12 @@ use std::time::{Duration, Instant};
 // ------------------------------------------------------------------
 
 pub fn keyboard_thread(
+  tx_ui: Sender<String>,
   stop_all_tx: Sender<()>,
   stop_all_rx: Receiver<()>,
   recording_paused: Arc<AtomicBool>,
   stop_play_tx: Sender<()>,
-  interrupt_counter: Arc<AtomicU64>
+  interrupt_counter: Arc<AtomicU64>,
 ) {
   // Raw mode lets us capture single key presses (space to pause/resume).
   let mut last_esc: Option<Instant> = None;
@@ -40,7 +41,6 @@ pub fn keyboard_thread(
     // Poll so we can also respond to stop_all.
     if event::poll(Duration::from_millis(50)).unwrap_or(false) {
       if let Ok(Event::Key(k)) = event::read() {
-
         // Ctrl+C should exit immediately
         if k.modifiers.contains(KeyModifiers::CONTROL) {
           if let KeyCode::Char('c') | KeyCode::Char('C') = k.code {
@@ -138,6 +138,12 @@ pub fn keyboard_thread(
             } else {
               recording_paused.store(false, Ordering::Relaxed);
             }
+            // Reset conversation history when changing agents
+            state.conversation_history.lock().unwrap().clear();
+            let _ = tx_ui.send(format!(
+              "line|\n\x1b[93m🤖 Agent switched to {}\x1b[0m",
+              new_agent.name
+            ));
           }
 
           // switch to next agent
@@ -168,6 +174,12 @@ pub fn keyboard_thread(
             } else {
               recording_paused.store(false, Ordering::Relaxed);
             }
+            // Reset conversation history when changing agents
+            state.conversation_history.lock().unwrap().clear();
+            let _ = tx_ui.send(format!(
+              "line|\n\x1b[93m🤖 Agent switched to {}\x1b[0m",
+              new_agent.name
+            ));
           }
           _ => {
             // Any other key while space was pressed indicates release

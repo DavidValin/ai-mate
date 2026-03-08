@@ -111,7 +111,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   thread::sleep(Duration::from_millis(30));
 
 
-   // Clones for threads
+  // Clones for threads
+  let tx_ui_for_keyboard = tx_ui.clone();
   let stop_all_rx_for_keyboard = stop_all_rx.clone();
   let stop_all_rx_for_playback = stop_all_rx.clone();
   let (stop_play_tx, stop_play_rx) = unbounded::<()>(); // stop playback signal
@@ -347,6 +348,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let key_handle = thread::spawn({
     move || {
       keyboard::keyboard_thread(
+        tx_ui_for_keyboard.clone(),
         stop_all_tx_for_key.clone(),
         stop_all_rx_for_keyboard.clone(),
         recording_paused_for_key.clone(),
