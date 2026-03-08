@@ -43,14 +43,14 @@ https://github.com/user-attachments/assets/e612feaa-8ab0-4761-9c67-53ec7d40cab7
 - 📌 Integrated `whisper`
 - 📌 Integrated `kokoro TTS` system
 - 📌 Interface with `OpenTTS` system
-- 📌 Supports `ollama` or `llama-server` or `llamafile`
+- 📌 Supports `ollama` or `llama-server`
 - 📌 28 languages supported (`ai-mate --list-voices`)
 - 📌 Use any gguf model from huggingface.com or ollama models (small models reply faster)
 
 ## LLM integration
 
-- ✅ ollama - all versions (default)
-- ✅ llama-server / llamafile - all versions
+- ✅ ollama (default)
+- ✅ llama-server
 - ✅ openclaw / clawbot (voice chat with your agent by connecting ai-mate to the endpoint)
 
 You can run the models locally (by default) or remotely by configuring the base urls via cli option.
@@ -89,11 +89,7 @@ Option A- ollama (the default)
 - Install `https://ollama.com/download`.
 - Pull the model you want to use with ai-mate, for instance: `ollama pull llama3.2:3b`.
 
-Option B- llamafile support
-- Download a llamafile `https://huggingface.co/mozilla-ai/Meta-Llama-3-8B-Instruct-llamafile/blob/main/Meta-Llama-3-8B-Instruct.Q8_0.llamafile` (this contains an ai model and the server in a single file).
-- Once downloaded, if in windows `rename the .llamafile to .exe`; in linux / mac `chmod +x Meta-Llama-3-8B-Instruct.Q8_0.llamafile`.
-
-Option C- llama-server support.
+Option B- llama-server support.
 - Install llama.cpp: `https://github.com/ggml-org/llama.cpp`.
 - Download a gguf model: `https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct.Q8_0.gguf?download=true`.
 
@@ -105,58 +101,53 @@ Option C- llama-server support.
 
 - `docker pull synesthesiam/opentts:all`
 
+## Configure agents
+
+The first time you run ai-mate it will create a configuration file if it doesn't exist in `~/.ai-mate/settings`. Example:
+
+```
+[agent]
+name = main agent
+language = en
+voice = bf_alice
+provider = ollama
+baseurl = http://localhost:8080
+model = gpt-oss-20b
+system_prompt = You are a smart ai assistant. You reply to the user with the necessary information following the next rules: Avoid suggestions unless they contribute to the specific user request. If the user hasn't requested anything specific ask the exact questions to find out exactly what he needs assistance with. Replies are no longer than 20 words unless a longer explanation is required.
+sound_threshold_peak = 0.1
+end_silence_ms = 2000
+tts = kokoro
+ptt = false
+whisper_model_path = ~/.whisper-models/ggml-tiny.bin
+```
+
+
+
+Explanation on the fields:
+
+* **name**: a short name for the agent
+* **language**: any of the languages available used for speech recognition and tts
+* **voice**: the voice name to use by the agent (see available voices for each language and tts system running `ai-mate --list-voices`)
+* **provider**: the system it will use to query the llm, it can be `ollama` or `llama-server`
+* **baseurl**: the base url used to contact the provider (it needs to be without path)
+* **model**: the model name to use in ollama (some llama-server versions will ignore this option as llama-server runs for a single model)
+* **system_prompt**: the system prompt to be sent to the llm when querying it
+* **sound_threshold_peak**: a value between 0 and 1 which will be used as a peak base to detect user speech
+* **end_silence_ms**: the milliseconds of silence below sound_threshold_peak level that have to elapse for user speech to be submitted
+* **tts**: the tts system to use, it can be `kokoro` or `opentts`
+* **ptt**: push to talk mode, when its set to true you have to keep the space pushed while speaking, then release.
+* **whisper_model_path**: the path to the whisper model. ai-mate unzips 2 models in ~/.whisper-models, tiny and small. You can download bigger models and point to them here
+
 ## How to use it
 
-Default configuration example:
+The first agent defined in `~/ai-mate/settings` will always be selected agent when running ai-mate.
 
 ```
 ollama serve
 ai-mate
 ```
 
-Push to Talk (PTT) example:
-
-```
-ollama serve
-ai-mate --ptt --model "llama3:8b"
-```
-
-llamafile example:
-
-```
-./Meta-Llama-3-8B-Instruct.Q8_0.llamafile --server
-ai-mate --llm llama-server
-```
-
-llama-server example:
-
-```
-llama-server -m Meta-Llama-3-8B-Instruct.Q8_0.gguf
-ai-mate --llm llama-server
-```
-
-Below are the default parameters, which you can override, example:
-
-```
-ai-mate \
-  --llm ollama \
-  --tts kokoro \
-  --language en \
-  --sound-threshold-peak 0.10 \
-  --end-silence-ms 850 \
-  --whisper-model-path ~/.whisper-models/ggml-tiny.bin \
-  --model "llama3.2:3b" \
-  --ollama-url "http://localhost:11434"
-```
-
-You can just override a specific variable, for example:
-
-```
-ai-mate --tts opentts --model "llama3.2:3b" --language ru
-ai-mate --model "llama3.2:3b" --language zh
-ai-mate --llm llama-server --language it
-ai-mate --language es --whisper-model-path ~/.whisper-models/ggml-medium-q5_0.bin`
-```
+You can switch agents in realtime by pressing Left / Right keyword arrows (you need at least 2 agents defined in `~/ai-mate/settings`).
 
 If you want to use OpenTTS, start the docker service first: `docker run --rm --platform=linux/amd64 -p 5500:5500 synesthesiam/opentts:all` (it will pull the image the first time). Adjust the platform as needed depending on your hardware. 
 
