@@ -7,6 +7,7 @@ use std::sync::{Arc, OnceLock, atomic::Ordering};
 use std::thread::{self, Builder};
 use std::time::Instant;
 use std::time::Duration;
+use crossterm::{terminal::{self, Clear, ClearType, ScrollUp}};
 
 mod assets;
 mod audio;
@@ -26,6 +27,8 @@ mod util;
 static START_INSTANT: OnceLock<Instant> = OnceLock::new();
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  let _ = terminal::enable_raw_mode();
+
   let args = crate::config::Args::parse();
   crate::log::set_verbose(args.verbose || false);
   let _ = START_INSTANT.get_or_init(Instant::now);

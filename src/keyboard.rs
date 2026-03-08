@@ -25,7 +25,6 @@ pub fn keyboard_thread(
   interrupt_counter: Arc<AtomicU64>
 ) {
   // Raw mode lets us capture single key presses (space to pause/resume).
-  let _ = terminal::enable_raw_mode();
   let mut last_esc: Option<Instant> = None;
 
   // Track if space was pressed and when last space event occurred

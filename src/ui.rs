@@ -159,8 +159,6 @@ pub fn spawn_ui_thread(
 
       let (_cols, term_height) = terminal::size().unwrap_or((80, 24));
       bottom_bar = render_bottom_bar(&mut out, &ui_state, &spinner, &status_line, term_height - 1);
-      out.flush().unwrap();
-
       thread::sleep(Duration::from_millis(10));
     }
   })
@@ -217,7 +215,7 @@ fn handle_line_message<W: Write>(
       buffer.last_mut().unwrap().push(ch);
 
       let (_view_start, visible) = viewport(buffer.len(), term_height);
-      let y_disp = if buffer.len() > visible {
+      let y_disp = if buffer.len() >= visible {
         visible - 1
       } else {
         buffer.len() - 1
@@ -241,7 +239,7 @@ fn handle_line_message<W: Write>(
   // Update viewport and clear last line for display
   let (_view_start, visible) = viewport(buffer.len(), terminal::size().unwrap_or((80, 24)).1);
 
-  if buffer.len() > visible {
+  if buffer.len() >= visible {
     execute!(out, ScrollUp(1)).unwrap();
   }
 
@@ -314,7 +312,7 @@ fn stream_chunk<W: Write>(
       buffer.last_mut().unwrap().push(ch);
 
       let (_view_start, visible) = viewport(buffer.len(), term_height);
-      let y_disp = if buffer.len() > visible {
+      let y_disp = if buffer.len() >= visible {
         visible - 1
       } else {
         buffer.len() - 1
