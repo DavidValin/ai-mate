@@ -141,8 +141,9 @@ pub fn keyboard_thread(
             // Reset conversation history when changing agents
             state.conversation_history.lock().unwrap().clear();
             let _ = tx_ui.send(format!(
-              "line|\n\x1b[93m🤖 Agent switched to {}\x1b[0m",
-              new_agent.name
+              "line|\x1b[32m🤖 Agent switched to '\x1b[37m{}\x1b[0m\x1b[32m' language: \x1b[37m{}\x1b[0m",
+              new_agent.name,
+              new_agent.language
             ));
           }
 
@@ -177,8 +178,9 @@ pub fn keyboard_thread(
             // Reset conversation history when changing agents
             state.conversation_history.lock().unwrap().clear();
             let _ = tx_ui.send(format!(
-              "line|\n\x1b[93m🤖 Agent switched to {}\x1b[0m",
-              new_agent.name
+              "line|\x1b[32m🤖 Agent switched to '\x1b[37m{}\x1b[0m\x1b[32m' language: \x1b[37m{}\x1b[0m",
+              new_agent.name,
+              new_agent.language
             ));
           }
           _ => {
