@@ -4,6 +4,7 @@
 
 use crate::tts;
 use crate::util::get_user_home_path;
+use anyhow::{anyhow, Error};
 use clap::Parser;
 use cpal::traits::DeviceTrait;
 use cpal::Device;
@@ -158,7 +159,7 @@ pub fn resolved_whisper_model_path(whisper_model_path: &str) -> String {
 pub fn load_settings(
   settings_path: &std::path::Path,
   args: &Args,
-) -> Result<Vec<AgentSettings>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<AgentSettings>, anyhow::Error> {
   // Read the whole INI file
   let ini_contents = read_to_string(settings_path)?;
   // Split on the section header "[agent]"
@@ -202,94 +203,95 @@ pub fn load_settings(
     {
       Ok(Ok(a)) => a,
       Ok(Err(e)) => {
-        crate::log::log(
-          "error",
-          &format!(
-            "Failed to parse agent's settings section: {}
-",
-            e
-          ),
-        );
+        print!("❌ Failed to parse agent's settings section: {}", e);
         thread::sleep(Duration::from_millis(30));
-        return Err(Box::new(e));
+        return Err(e.into());
       }
       Err(_) => {
-        crate::log::log("error", "Panic while parsing agent's section");
+        print!("❌ Panic while parsing agent's section");
         thread::sleep(Duration::from_millis(30));
-        return Err("panic while parsing agent's section".into());
+        return Err(Error::msg("panic while parsing agent's section"));
       }
     };
     // Sanitize quoted string values in AgentSettings before validation
     sanitize_agent_settings(&mut agent);
 
     // Validate individual agent
-    if let Err(e) = validate_agent_name(&agent.name) {
-      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
-      thread::sleep(Duration::from_millis(30));
-      process::exit(0);
+    if let Err(e) =
+      validate_agent_name(&agent.name).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
     }
 
-    if let Err(e) = validate_provider(&agent.provider) {
-      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
-      thread::sleep(Duration::from_millis(30));
-      process::exit(0);
-    }
-    if let Err(e) = validate_baseurl(&agent.baseurl) {
-      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
-      thread::sleep(Duration::from_millis(30));
-      process::exit(0);
-    }
-    if let Err(e) = validate_model(&agent.model) {
-      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
-      thread::sleep(Duration::from_millis(30));
-      process::exit(0);
-    }
-    if let Err(e) = validate_system_prompt(&agent.system_prompt) {
-      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
-      thread::sleep(Duration::from_millis(30));
-      process::exit(0);
-    }
-    if let Err(e) = validate_sound_threshold_peak(agent.sound_threshold_peak) {
-      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
-      thread::sleep(Duration::from_millis(30));
-      process::exit(0);
-    }
-    if let Err(e) = validate_end_silence_ms(agent.end_silence_ms) {
-      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
-      thread::sleep(Duration::from_millis(30));
-      process::exit(0);
+    if let Err(e) =
+      validate_provider(&agent.provider).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
     }
 
-    if let Err(e) = validate_tts(&agent.tts) {
-      crate::log::log("error", &format!("Agent {}: {}", agent.name, e));
-      thread::sleep(Duration::from_millis(30));
-      process::exit(0);
+    if let Err(e) =
+      validate_baseurl(&agent.baseurl).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
+    }
+
+    if let Err(e) = validate_system_prompt(&agent.system_prompt)
+      .map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
+    }
+
+    if let Err(e) = validate_sound_threshold_peak(agent.sound_threshold_peak)
+      .map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
+    }
+
+    if let Err(e) = validate_end_silence_ms(agent.end_silence_ms)
+      .map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
+    }
+
+    if let Err(e) = validate_end_silence_ms(agent.end_silence_ms)
+      .map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
+    }
+
+    if let Err(e) = validate_tts(&agent.tts).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
+    }
+
+    if let Err(e) = validate_language(&agent.language, &agent.tts).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
+    }
+
+    if let Err(e) = validate_voice(&agent.voice, &agent.language, &agent.tts).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      errors.push(format!("Agent {}: {}", agent.name, e));
     }
 
     agents.push(agent);
   }
 
   if !errors.is_empty() {
-    for err in &errors {
-      crate::log::log("error", &format!("Error: {}", err));
-    }
-    return Err(
-      errors
-        .join(
-          "
-",
-        )
-        .into(),
-    );
+    print!("❌ {}", &errors.join("\n").to_string());
+    thread::sleep(Duration::from_millis(30));
+    process::exit(1);
   }
 
   if agents.is_empty() {
-    return Err("No [agent] sections found in settings file".into());
+    return Err(Error::msg("No [agent] sections found in settings file"));
   }
 
   // Validate CLI args
-  if let Err(e) = validate_agent_name(&args.agent) {
-    return Err(e.into());
+  if let Err(e) =
+    validate_agent_name(&args.agent).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+  {
+    return Err(e);
   }
 
   // Merge args into each agent's settings
@@ -302,9 +304,11 @@ pub fn load_settings(
   Ok(agents)
 }
 
-pub fn ensure_settings_file() -> Result<(), Box<dyn std::error::Error>> {
+pub fn ensure_settings_file() -> Result<(), Error> {
   // Determine home directory
-  let home = get_user_home_path().ok_or("Unable to determine home directory")?;
+  let home =
+    get_user_home_path().ok_or_else(|| Error::msg("Unable to determine home directory"))?;
+
   let ai_mate_dir = home.join(".ai-mate");
   // Ensure directory exists
   if !ai_mate_dir.exists() {
@@ -351,7 +355,7 @@ whisper_model_path = ~/.whisper-models/ggml-tiny.bin
 pub fn pick_input_config(
   device: &Device,
   preferred_sr: u32,
-) -> Result<cpal::SupportedStreamConfig, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<cpal::SupportedStreamConfig, Error> {
   use cpal::SampleFormat;
 
   let mut candidates: Vec<cpal::SupportedStreamConfig> = Vec::new();
@@ -381,40 +385,37 @@ pub fn pick_input_config(
   candidates
     .into_iter()
     .next()
-    .ok_or_else(|| "no supported input configs".into())
+    .ok_or_else(|| Error::msg("no supported input configs"))
 }
 
 // PRIVATE
 // ------------------------------------------------------------------
 
-fn validate_agent_name(name: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+fn validate_agent_name(name: &str) -> Result<String, std::io::Error> {
   let len = name.chars().count();
   if len < 1 || len > 200 {
-    Err(Box::new(std::io::Error::new(
+    return Err(std::io::Error::new(
       std::io::ErrorKind::InvalidInput,
       "agent must be between 1 and 200 characters",
-    )))
+    ));
   } else {
     Ok(name.to_string())
   }
 }
 
-fn validate_language(
-  language: &str,
-  tts: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn validate_language(language: &str, tts: &str) -> Result<(), std::io::Error> {
   let lang_clean = language.trim_matches('"');
   let langs = tts::get_all_available_languages();
   if !langs.contains(&lang_clean) {
     let err = format!("Unsupported language: {}", language);
     crate::log::log("error", &err);
-    return Err(err.into());
+    return Err(std::io::Error::new(std::io::ErrorKind::Other, err));
   }
   let voices = tts::get_voices_for(tts, lang_clean);
   if voices.is_empty() {
     let err = format!("No voices for language {} and TTS {}", language, tts);
     crate::log::log("error", &err);
-    return Err(err.into());
+    return Err(std::io::Error::new(std::io::ErrorKind::Other, err));
   }
   // Ensure the selected TTS engine supports this language
   let voices = tts::get_voices_for(tts, lang_clean);
@@ -424,93 +425,116 @@ fn validate_language(
       tts, language
     );
     crate::log::log("error", &err);
-    return Err(err.into());
+    return Err(std::io::Error::new(std::io::ErrorKind::Other, err));
   }
   Ok(())
 }
 
-fn validate_voice(
-  voice: &str,
-  language: &str,
-  tts: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn validate_voice(voice: &str, language: &str, tts: &str) -> Result<(), std::io::Error> {
   let lang_clean = language.trim_matches('"');
   let voices = tts::get_voices_for(tts, lang_clean);
   if voices.is_empty() {
-    return Err(
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
       format!(
         "No available voices for TTS '{}' and language '{}'",
-        tts, language,
-      )
-      .into(),
-    );
+        tts, language
+      ),
+    ));
   }
 
   let voice_clean = voice.trim_matches('"');
   if !voices.iter().any(|v| *v == voice_clean) {
-    return Err(format!("Unsupported voice '{}' for language {}", voice, language).into());
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
+      format!("Unsupported voice '{}' for language {}", voice, language),
+    ));
   }
   Ok(())
 }
 
-fn validate_tts(tts: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn validate_tts(tts: &str) -> Result<(), std::io::Error> {
   if tts != "kokoro" && tts != "opentts" {
-    return Err(format!("Invalid tts '{}' . Must be 'kokoro' or 'opentts'", tts).into());
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
+      format!("Invalid tts '{}' . Must be 'kokoro' or 'opentts'", tts),
+    ));
   }
   Ok(())
 }
 
-fn validate_provider(provider: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn validate_provider(provider: &str) -> Result<(), std::io::Error> {
   if provider != "ollama" && provider != "llama-server" {
-    return Err(
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
       format!(
         "Invalid provider '{}' . Must be 'ollama' or 'llama-server'",
         provider
-      )
-      .into(),
-    );
+      ),
+    ));
   }
   Ok(())
 }
 
-fn validate_baseurl(baseurl: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  let url = Url::parse(baseurl).map_err(|e| format!("Invalid baseurl '{}': {}", baseurl, e))?;
+fn validate_baseurl(baseurl: &str) -> Result<(), std::io::Error> {
+  let url = Url::parse(baseurl).map_err(|e| {
+    std::io::Error::new(
+      std::io::ErrorKind::Other,
+      format!("Invalid baseurl '{}' : {}", baseurl, e),
+    )
+  })?;
   if url.path() != "/" || !url.has_host() {
-    return Err(format!("baseurl must have a host and no path: {}", baseurl).into());
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
+      format!("baseurl must have a host and no path: {}", baseurl),
+    ));
   }
   Ok(())
 }
 
-fn validate_model(model: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn validate_model(model: &str) -> Result<(), std::io::Error> {
   if model.is_empty() || model.len() > 200 {
-    return Err("'model' must be 1-200 characters".into());
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
+      "'model' must be 1-200 characters",
+    ));
   }
   Ok(())
 }
 
-fn validate_system_prompt(prompt: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn validate_system_prompt(prompt: &str) -> Result<(), std::io::Error> {
   if prompt.is_empty() || prompt.len() > 20000 {
-    return Err("'system_prompt' must be 0-20000 characters".into());
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
+      "'system_prompt' must be 0-20000 characters",
+    ));
   }
   Ok(())
 }
 
-fn validate_sound_threshold_peak(
-  value: f32,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn validate_sound_threshold_peak(value: f32) -> Result<(), std::io::Error> {
   if value < 0.0 || value > 1.0 {
-    return Err("'sound_threshold_peak' must be between 0.0 and 1.0".into());
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
+      "'sound_threshold_peak' must be between 0.0 and 1.0",
+    ));
   }
   let scaled = (value * 1000.0).round();
   if (scaled / 1000.0 - value).abs() > 1e-6 {
-    return Err("'sound_threshold_peak' must have at most 3 decimal places".into());
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
+      "'sound_threshold_peak' must have at most 3 decimal places",
+    ));
   }
   Ok(())
 }
 
-fn validate_end_silence_ms(value: u64) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn validate_end_silence_ms(value: u64) -> Result<(), std::io::Error> {
   if value < 1 || value > 20000 {
-    return Err("'end_silence_ms' must be between 1 and 20000".into());
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::Other,
+      "'end_silence_ms' must be between 1 and 20000",
+    ));
   }
   Ok(())
 }

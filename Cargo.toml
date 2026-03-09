@@ -11,6 +11,7 @@ license-file = "LICENSE"
 readme = "README.md"
 
 [dependencies]
+anyhow = "1.0"
 serde_ini = "0.2.0"
 clap = { version = "4", features = ["derive", "env"] }
 cpal = "0.15"

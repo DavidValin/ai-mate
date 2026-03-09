@@ -21,6 +21,7 @@ dependencies = [
 name = "ai-mate"
 version = "0.3.3"
 dependencies = [
+ "anyhow",
  "bytes",
  "clap",
  "cpal",

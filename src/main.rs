@@ -7,7 +7,7 @@ use std::sync::{Arc, OnceLock, atomic::Ordering};
 use std::thread::{self, Builder};
 use std::time::Instant;
 use std::time::Duration;
-use crossterm::{terminal::{self, Clear, ClearType, ScrollUp}};
+use crossterm::{terminal::{self}};
 
 mod assets;
 mod audio;
@@ -83,16 +83,17 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let agents = match config::load_settings(&settings_path, &args) {
     Ok(v) => v,
     Err(e) => {
-      log::log("error", &format!("Failed to load settings: {}", e));
+      print!("❌ Failed to load settings: {}", e);
+      thread::sleep(Duration::from_millis(300));
       process::exit(1);
     }
   };
 
-
   let settings = match agents.iter().find(|a| a.name == args.agent).cloned() {
     Some(a) => a,
     None => {
-      print!("Agent '{}' not found. Available agents: {}", args.agent, agents.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", "));
+      print!("❌ Agent '{}' not found. Available agents: {}", args.agent, agents.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", "));
+      thread::sleep(Duration::from_millis(300));
       process::exit(1);
     }
   };
@@ -104,14 +105,15 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ui = state.ui.clone();
   let status_line = state.status_line.clone();
 
-  // Spawn UI thread
+  // ---------------------------------------------------
+  // Thread: UI
+  // ---------------------------------------------------
+
   let ui_handle = ui::spawn_ui_thread(
     ui.clone(),
     status_line.clone(),
     rx_ui,
   );
-  thread::sleep(Duration::from_millis(30));
-
 
   // Clones for threads
   let tx_ui_for_keyboard = tx_ui.clone();
@@ -246,15 +248,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // ---------------------------------------------------
   // Thread: Playback
   // ---------------------------------------------------
+
   let rx_play_for_playback = rx_play.clone();
   let playback_active_for_play = playback_active.clone();
   let gate_until_ms_for_play = gate_until_ms.clone();
   let paused_for_play = paused.clone();
-
-
-  // Initialize AppState with the selected voice
-
-
   let ui_for_play = ui.clone();
   let volume_play_for_play = volume_play.clone();
   let play_handle = thread::spawn({
