@@ -81,19 +81,21 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
   // load and file settings, merge cli args and validate
   let agents = match config::load_settings(&settings_path, &args) {
-      Ok(v) => v,
-      Err(e) => {
-          log::log("error", &format!("Failed to load settings: {}", e));
-          process::exit(1);
-      }
+    Ok(v) => v,
+    Err(e) => {
+      log::log("error", &format!("Failed to load settings: {}", e));
+      process::exit(1);
+    }
   };
 
 
-  let settings = agents
-    .iter()
-    .find(|a| a.name == args.agent)
-    .cloned()
-    .unwrap_or_else(|| agents[0].clone());
+  let settings = match agents.iter().find(|a| a.name == args.agent).cloned() {
+    Some(a) => a,
+    None => {
+      print!("Agent '{}' not found. Available agents: {}", args.agent, agents.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", "));
+      process::exit(1);
+    }
+  };
 
   // Initialize AppState with the selected voice
    let state: Arc<state::AppState> = Arc::new(state::AppState::with_agent(settings.clone(), agents.clone()));
@@ -104,9 +106,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
   // Spawn UI thread
   let ui_handle = ui::spawn_ui_thread(
-      ui.clone(),
-      status_line.clone(),
-      rx_ui,
+    ui.clone(),
+    status_line.clone(),
+    rx_ui,
   );
   thread::sleep(Duration::from_millis(30));
 

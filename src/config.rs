@@ -196,8 +196,8 @@ pub fn load_settings(
 
     let section = clean_section.trim();
 
-    println!("DEBUG section: {}", section);
-    println!("DEBUG parsing section: {}", section);
+    // println!("DEBUG section: {}", section);
+    // println!("DEBUG parsing section: {}", section);
     let mut agent: AgentSettings = match panic::catch_unwind(|| from_str::<AgentSettings>(&section))
     {
       Ok(Ok(a)) => a,

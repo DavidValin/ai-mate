@@ -78,7 +78,7 @@ pub async fn llama_server_stream_response_into(
         client.post(&url).json(&payload)
       }
       ApiKind::OllamaGenerate => {
-        let prompt_str = messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
+        let prompt_str = messages.iter().map(|m| m.content.as_str()).collect::<Vec<&str>>().join("\n");
         let payload = json!({
           "model": llama_model,
           "prompt": prompt_str,
