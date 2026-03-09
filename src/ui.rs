@@ -377,26 +377,21 @@ fn render_bottom_bar<W: Write>(
   };
 
   let internal_status = format!(
-    "{}{}{}{}",
+    "{}{}{}",
     if recording_paused {
-      "\x1b[47m█\x1b[0m"
+      "\x1b[97m█\x1b[0m"
     } else {
-      "\x1b[100m█\x1b[0m"
-    },
-    if conversation_paused {
-      "\x1b[47m█\x1b[0m"
-    } else {
-      "\x1b[100m█\x1b[0m"
+      "\x1b[90m█\x1b[0m"
     },
     if state.playback.paused.load(Ordering::Relaxed) {
-      "\x1b[100m█\x1b[0m"
+      "\x1b[90m█\x1b[0m"
     } else {
-      "\x1b[47m█\x1b[0m"
+      "\x1b[97m█\x1b[0m"
     },
     if state.playback.playback_active.load(Ordering::Relaxed) {
-      "\x1b[47m█\x1b[0m"
+      "\x1b[97m█\x1b[0m"
     } else {
-      "\x1b[100m█\x1b[0m"
+      "\x1b[90m█\x1b[0m"
     },
   );
 
