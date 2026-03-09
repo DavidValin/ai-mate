@@ -45,6 +45,7 @@ pub fn keyboard_thread(
         if k.modifiers.contains(KeyModifiers::CONTROL) {
           if let KeyCode::Char('c') | KeyCode::Char('C') = k.code {
             let _ = stop_all_tx.try_send(());
+            let _ = tx_ui.try_send("stop_ui|".to_string());
             break;
           }
         }
