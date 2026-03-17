@@ -2,22 +2,23 @@
 //  Conversation
 // ------------------------------------------------------------------
 
+use crate::state::GLOBAL_STATE;
 use crate::START_INSTANT;
 use crate::llm::ChatMessage;
-use crate::state::GLOBAL_STATE;
-use crossbeam_channel::{Receiver, Sender, select};
+use crossbeam_channel::{select, Receiver, Sender};
 use std::cell::Cell;
 use std::sync::OnceLock;
 use std::sync::{
-  Arc,
   atomic::{AtomicU64, Ordering},
+  Arc,
 };
-use tokio::spawn;
 
 static WHISPER_CTX: OnceLock<whisper_rs::WhisperContext> = OnceLock::new();
 
 // API
 // ------------------------------------------------------------------
+
+pub type ConversationHistory = std::sync::Arc<std::sync::Mutex<Vec<ChatMessage>>>;
 
 /// Initialise the Whisper context once, performing a warm‑up.
 pub fn init_whisper_context(model_path: &str) -> &'static whisper_rs::WhisperContext {
@@ -36,14 +37,14 @@ pub fn conversation_thread(
   stop_all_tx: Sender<()>,
   interrupt_counter: Arc<AtomicU64>,
   model_path: String,
-  args: crate::config::Args,
+  settings: crate::config::AgentSettings,
   ui: crate::state::UiState,
   conversation_history: std::sync::Arc<std::sync::Mutex<Vec<crate::llm::ChatMessage>>>,
   tx_ui: Sender<String>,
   tts_tx: Sender<(String, u64)>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ctx = init_whisper_context(&model_path);
-  crate::log::log("info", &format!("LLM model: {}", args.model));
+  crate::log::log("info", &format!("LLM model: {}", settings.model));
 
   let tts_tx_cloned = tts_tx.clone();
   let interrupt_counter_cloned = interrupt_counter.clone();
@@ -61,7 +62,6 @@ pub fn conversation_thread(
         // start rendering for this turn (agent response to user query)
         state.processing_response.store(true, Ordering::Relaxed);
         let pcm_f32: Vec<f32> = utt.data.clone();
-
         let mono_f32 = if utt.channels == 1 {
           pcm_f32.clone()
         } else {
@@ -78,20 +78,33 @@ pub fn conversation_thread(
         crate::log::log("debug", &format!("Received audio chunk of len {}", utt.data.len()));
         crate::log::log("debug", &format!("Received mono f32 pcm len {}", pcm_f32.len()));
         crate::log::log("debug", "Transcribing utterance...");
-        let user_text = crate::stt::whisper_transcribe_with_ctx(&ctx, &mono_f32, utt.sample_rate, &args.language)?;
+        let state = GLOBAL_STATE.get().expect("AppState not initialized");
+        let user_text = crate::stt::whisper_transcribe_with_ctx(&ctx, &mono_f32, utt.sample_rate, &state.language.lock().unwrap())?;
         crate::log::log("info", &format!("Transcribed: '{}'", user_text));
+        let system_prompt = {
+          let state = GLOBAL_STATE.get().expect("AppState not initialized");
+          state.system_prompt.lock().unwrap().clone()
+        };
+        let hist = conversation_history.lock().unwrap();
+        let mut messages = Vec::new();
+        messages.push(ChatMessage{role:"system".to_string(), content:system_prompt.replace("\\n", "\n")});
+        for m in hist.iter() {
+          messages.push(m.clone());
+        }
+        // Release the conversation history lock before re-acquiring it to push the user message
+        std::mem::drop(hist);
+        messages.push(ChatMessage{role:"user".to_string(), content:user_text.clone()});
         let user_text = user_text.trim().to_string();
         let speech_end_ms = crate::util::SPEECH_END_AT.load(std::sync::atomic::Ordering::SeqCst);
         let mut first_phrase_logged = false;
-
         if user_text.is_empty() {
           crate::log::log("debug", "Transcription returned empty string");
           continue;
         }
 
         // Print user line (keep spinner/emojis only on the latest bottom line).
-        let my_interrupt = interrupt_counter_cloned.load(Ordering::SeqCst);
-        if handle_interruption(&interrupt_counter_cloned, my_interrupt) {
+        let my_interrupt = interrupt_counter.load(Ordering::SeqCst);
+        if handle_interruption(&interrupt_counter, my_interrupt) {
           interrupt_counter.store(my_interrupt, Ordering::SeqCst);
           continue;
         }
@@ -117,6 +130,7 @@ pub fn conversation_thread(
         let stop_all_tx_cloned_for_closure = stop_all_tx.clone();
         let speaker_arc_cloned_for_closure = speaker_arc.clone();
         let tx_ui_cloned_for_closure = tx_ui.clone();
+        let tts_tx_cloned_for_closure = tts_tx.clone();
         let ui_thinking_cloned_for_closure = ui.thinking.clone();
         let conversation_history_cloned_for_closure = conversation_history.clone();
         // clones for closure
@@ -124,16 +138,13 @@ pub fn conversation_thread(
         let conversation_history_for_closure_cloned = conversation_history_cloned_for_closure.clone();
 
         // called on every chunk received from llm
-        let piece_acc = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let piece_acc_for_history = piece_acc.clone();
-        let tts_tx_local = tts_tx_cloned.clone();
-        let interrupt_local = interrupt_counter_cloned.clone();
         let on_piece = move |piece: &str| {
-          // accumulate piece for final response
-          piece_acc.lock().unwrap().push(piece.to_string());
-
+          let hist = conversation_history_for_closure_cloned.clone();
           if interrupted {
             let _ = stop_all_tx_cloned_for_closure.try_send(());
+            return;
+          }
+          if piece.is_empty() {
             return;
           }
           if stop_all_rx_cloned_for_closure.try_recv().is_ok() {
@@ -145,19 +156,16 @@ pub fn conversation_thread(
             got_any_token = true;
             ui_thinking_for_closure.store(false, Ordering::Relaxed);
           }
-
           if let Some(phrase) = speaker_arc_cloned_for_closure.lock().unwrap().push_text(piece) {
             if !first_phrase_logged {
               let elapsed_ms = crate::util::now_ms(&START_INSTANT) - speech_end_ms;
               crate::log::log("info", &format!("Time from speech end to first phrase playback: {:.2?}", elapsed_ms));
               first_phrase_logged = true;
             }
-            // send phrase to TTS immediately
-            let current_interrupt = interrupt_local.load(Ordering::SeqCst);
-            let cleaned = strip_special_chars(&phrase);
-            let _ = tts_tx_local.send((cleaned, current_interrupt));
+            hist.lock().unwrap().push(ChatMessage{role:"assistant".to_string(), content:phrase.clone()});
+            // send the complete phrase to tts
+            let _ = tts_tx_cloned_for_closure.send((strip_special_chars(&phrase), my_interrupt));
           }
-
           // send raw piece immediately
           let _ = tx_ui_cloned_for_closure.send(format!("stream|{}", piece));
         };
@@ -165,71 +173,80 @@ pub fn conversation_thread(
         let user_text2 = user_text.clone();
         let rt_llm_call = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let stop_all_rx_cloned = stop_all_rx.clone();
-        let ollama_url = args.ollama_url.clone();
+        let ollama_url = settings.baseurl.clone();
         let interrupt_counter_cloned = interrupt_counter.clone();
-        let llama_url = args.llama_server_url.clone();
-        let model = args.model.clone();
-        let engine_type = args.llm.clone();
+        // llama_url not needed in this context, use settings.baseurl when required
+        let model = settings.model.clone();
+        let engine_type = settings.provider.clone();
 
-        if args.llm == "llama-server" {
+        if *state.provider.lock().unwrap() == "llama-server" {
           let on_piece_cloned = std::sync::Arc::new(std::sync::Mutex::new(on_piece));
           let on_piece_cloned1 = on_piece_cloned.clone();
-
           let conv_hist_clone = conversation_history.clone();
+          let value = user_text.clone();
+
+          let rt_llm_tools_call1 = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+          let conv_hist_clone2a = conversation_history.clone();
+          let llama_url2a = settings.baseurl.clone();
+          let model2a = settings.model.clone();
+          let engine_type2a = settings.provider.clone();
+          let my_interrupt2a = my_interrupt.clone();
+          let stop_all_rx_cloned2a = stop_all_rx.clone();
+          let interrupt_counter_cloned2a = interrupt_counter.clone();
+          let on_piece_cloned12a = on_piece_cloned1.clone();
+          let value2a = user_text.clone();
 
           let handle = std::thread::spawn(move || {
-            // ask for store memory tool calls using this last message
             if crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false) {
-              rt_llm_call.block_on(async {
+              rt_llm_tools_call1.block_on(async {
                 match crate::llm::llama_server_stream_response_into (
-                  conv_hist_clone.lock().unwrap().as_slice(),
-                  true, // send full history
-                  false, // no tool calls
-                  &user_text,
-                  llama_url.as_str(),
-                  model.as_str(),
-                  engine_type.as_str(),
-                  &stop_all_rx_cloned,
-                  interrupt_counter_cloned.clone(),
-                  my_interrupt,
-                  &mut *on_piece_cloned.lock().unwrap()
+                  &conv_hist_clone2a.lock().unwrap(),
+                  false, // send only this user message
+                  true, // include tools
+                  &value2a,
+                  llama_url2a.as_str(),
+                  model2a.as_str(),
+                  engine_type2a.as_str(),
+                  &stop_all_rx_cloned2a,
+                  interrupt_counter_cloned2a.clone(),
+                  my_interrupt2a,
+                  &mut *on_piece_cloned12a.lock().unwrap()
                 ).await {
                   Ok(_) => (),
                   Err(e) => {
                     crate::log::log("error", &format!("llama server error: {e}. Make sure llama-server / llamafile is running"));
                   }
                 }
-              });
+              })
             }
           });
 
-          let rt_llm_tools_call = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-          let conv_hist_clone2 = conversation_history.clone();
-
-          let llama_url2 = args.llama_server_url.clone();
-          let model2 = args.model.clone();
-          let engine_type2 = args.llm.clone();
-          let my_interrupt2 = my_interrupt.clone();
-          let stop_all_rx_cloned2 = stop_all_rx.clone();
-          let interrupt_counter_cloned2 = interrupt_counter.clone();
-          let on_piece_cloned12 = on_piece_cloned1.clone();
+          let rt_llm_tools_call2 = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+          let conv_hist_clone2b = conversation_history.clone();
+          let llama_url2b = settings.baseurl.clone();
+          let model2b = settings.model.clone();
+          let engine_type2b = settings.provider.clone();
+          let my_interrupt2b = my_interrupt.clone();
+          let stop_all_rx_cloned2b = stop_all_rx.clone();
+          let interrupt_counter_cloned2b = interrupt_counter.clone();
+          let on_piece_cloned12b = on_piece_cloned1.clone();
+          let value2b = user_text.clone();
 
           let handle2 = std::thread::spawn(move || {
-            // ask for store memory tool calls using this last message
             if crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false) {
-              rt_llm_tools_call.block_on(async {
+              rt_llm_tools_call2.block_on(async {
                 match crate::llm::llama_server_stream_response_into (
-                  conv_hist_clone2.lock().unwrap().as_slice(),
-                  false, // send only this user message
+                  &conv_hist_clone2b.lock().unwrap(),
+                  true, // send only this user message
                   true, // include tools
-                  &user_text2,
-                  llama_url2.as_str(),
-                  model2.as_str(),
-                  engine_type2.as_str(),
-                  &stop_all_rx_cloned2,
-                  interrupt_counter_cloned2.clone(),
-                  my_interrupt2,
-                  &mut *on_piece_cloned12.lock().unwrap()
+                  &value2b,
+                  llama_url2b.as_str(),
+                  model2b.as_str(),
+                  engine_type2b.as_str(),
+                  &stop_all_rx_cloned2b,
+                  interrupt_counter_cloned2b.clone(),
+                  my_interrupt2b,
+                  &mut *on_piece_cloned12b.lock().unwrap()
                 ).await {
                   Ok(_) => (),
                   Err(e) => {
@@ -247,12 +264,12 @@ pub fn conversation_thread(
           let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
           let on_piece_cloned = std::sync::Arc::new(std::sync::Mutex::new(on_piece));
           let conv_hist_clone = conversation_history.clone();
-          let handle = std::thread::spawn(move || {
 
+          let handle = std::thread::spawn(move || {
             // llm stream request
             rt.block_on(async {
               match crate::llm::llama_server_stream_response_into (
-                conv_hist_clone.lock().unwrap().as_slice(),
+                &conv_hist_clone.lock().unwrap(),
                 true, // include full history
                 false, // do not include tools
                 &user_text,
@@ -276,7 +293,7 @@ pub fn conversation_thread(
             if crate::llm::TOOLS_SUPPORTED.get().copied().unwrap_or(false) {
               rt.block_on(async {
                 match crate::llm::llama_server_stream_response_into (
-                  conv_hist_clone.lock().unwrap().as_slice(),
+                  &conv_hist_clone.lock().unwrap(),
                   false, // send only this user message
                   true, // include tools
                   &user_text,
@@ -298,28 +315,17 @@ pub fn conversation_thread(
             } else {
               Ok(())
             }
-
           });
+
           handle.join().unwrap();
         }
         ui_thinking_cloned_for_closure.store(false, Ordering::Relaxed);
-
         if let Some(phrase) = speaker_arc.lock().unwrap().flush() {
-          // accumulate final phrase as a piece
-          piece_acc_for_history.lock().unwrap().push(phrase.clone());
-          let _ = tx_ui.send(phrase.clone());
-          // send final phrase to TTS
+          let phrase_clone = phrase.clone();
+          let _ = tx_ui.send(phrase_clone);
+          conversation_history.lock().unwrap().push(ChatMessage{role:"assistant".to_string(), content:phrase.clone()});
           let current_interrupt = interrupt_counter.load(Ordering::SeqCst);
-          let cleaned = strip_special_chars(&phrase);
-          let _ = tts_tx_cloned.send((cleaned, current_interrupt));
-        }
-        // after streaming, combine accumulated pieces into full_response
-        let full_response = piece_acc_for_history.lock().unwrap().join("");
-        if !full_response.is_empty() {
-          conversation_history.lock().unwrap().push(ChatMessage { role: "assistant".into(), content: full_response.clone() });
-          // send full_response to TTS as one phrase
-          let current_interrupt = interrupt_counter.load(Ordering::SeqCst);
-          let cleaned = strip_special_chars(&full_response);
+          let _ = tts_tx.send((phrase.clone(), current_interrupt));
         }
       }
     }
@@ -342,12 +348,20 @@ impl PhraseSpeaker {
     self.buf.push_str(s);
     // cap phrases by new lines or dots
     let trigger = self.buf.contains('\n') || self.buf.ends_with('.');
-    if trigger { self.flush() } else { None }
+    if trigger {
+      self.flush()
+    } else {
+      None
+    }
   }
   fn flush(&mut self) -> Option<String> {
     let out = self.buf.trim().to_string();
     self.buf.clear();
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+      None
+    } else {
+      Some(out)
+    }
   }
 }
 
@@ -371,7 +385,8 @@ fn strip_special_chars(s: &str) -> String {
     if !inside {
       result.extend(part.chars().filter(|c| {
         ![
-          '.', '~', '*', '&', '-', ',', ';', ':', '(', ')', '[', ']', '{', '}', '"', '\'',
+          '+', '.', '~', '*', '&', '-', ',', ';', ':', '(', ')', '[', ']', '{', '}', '"', '\'',
+          '#', '`', '|',
         ]
         .contains(c)
       }));

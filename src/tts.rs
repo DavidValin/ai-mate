@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------
 
 use crossbeam_channel::{Receiver, Sender};
+use crate::state::GLOBAL_STATE;
 use kokoro_micro::TtsEngine;
 mod kokoro_tts;
 use reqwest;
@@ -82,7 +83,6 @@ pub fn tts_thread(
   tx_play: Sender<crate::audio::AudioChunk>,
   stop_all_rx: Receiver<()>,
   interrupt_counter: Arc<AtomicU64>,
-  args: crate::config::Args,
   rx_tts: Receiver<(String, u64)>,
   stop_play_tx: Sender<()>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -92,14 +92,20 @@ pub fn tts_thread(
       recv(rx_tts) -> msg => {
         let (phrase, expected_interrupt) = match msg {
           Ok(v) => v,
-          Err(_) => continue,
+          Err(_) => break,
         };
         let voice = voice_state.lock().unwrap().clone();
+        let state = GLOBAL_STATE.get().expect("AppState not initialized");
+        let tts_val = state.tts.lock().unwrap().clone();
+        crate::log::log("info", tts_val.as_str());
+        let language = state.language.lock().unwrap().clone();
+        crate::log::log("info", language.as_str());
+      
         let outcome = crate::tts::speak(
           &phrase,
-          args.tts.as_str(),
-          args.opentts_base_url.as_str(),
-          args.language.as_str(),
+          tts_val.as_str(),
+          crate::config::OPENTTS_BASE_URL_DEFAULT,
+          language.as_str(),
           voice.as_str(),
           out_sample_rate,
           tx_play.clone(),
@@ -123,7 +129,7 @@ pub fn tts_thread(
           }
           Err(_e) => {
             crate::log::log("error", &format!("TTS error. Can't play audio speech. Make sure OpenTTS is running: docker run --rm -p 5500:5500 synesthesiam/opentts:all"));
-            continue;
+            break;
           }
         }
         // Stop if interrupt counter changed while speaking
@@ -136,8 +142,8 @@ pub fn tts_thread(
         }
       },
         recv(stop_all_rx) -> _ => {
-          // Gracefully exit on stop signal
-          break;
+            // Gracefully exit on stop signal
+            break;
         }
     }
   }
@@ -417,7 +423,7 @@ pub fn speak_via_kokoro_stream(
 }
 
 pub async fn start_kokoro_engine() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  let engine = TtsEngine::new().await?;
+  let engine: TtsEngine = TtsEngine::new().await?;
   KOKORO_ENGINE.set(Arc::new(Mutex::new(engine))).ok();
   Ok(())
 }
@@ -694,16 +700,11 @@ fn stream_wav16le_over_http(
           break;
         }
         data.truncate(aligned);
-        if tx
-          .try_send(crate::audio::AudioChunk {
-            data,
-            channels,
-            sample_rate: target_sr,
-          })
-          .is_err()
-        {
-          crate::log::log("error", "TTS send audio chunk failed");
-        }
+        tx.send(crate::audio::AudioChunk {
+          data,
+          channels,
+          sample_rate: target_sr,
+        })?;
         offset = end;
       }
     }
@@ -717,16 +718,11 @@ fn stream_wav16le_over_http(
       if interrupt_counter.load(Ordering::SeqCst) != expected_interrupt {
         return Ok(SpeakOutcome::Interrupted);
       }
-      if tx
-        .try_send(crate::audio::AudioChunk {
-          data: pending,
-          channels,
-          sample_rate: target_sr,
-        })
-        .is_err()
-      {
-        crate::log::log("error", "TTS send audio chunk failed");
-      }
+      tx.send(crate::audio::AudioChunk {
+        data: pending,
+        channels,
+        sample_rate: target_sr,
+      })?;
     }
   } else {
     let mut pcm = vec![0u8; data_len as usize];
@@ -778,16 +774,11 @@ fn stream_wav16le_over_http(
     } else {
       Vec::new()
     };
-    if tx
-      .try_send(crate::audio::AudioChunk {
-        data,
-        channels,
-        sample_rate: target_sr,
-      })
-      .is_err()
-    {
-      crate::log::log("error", "TTS send audio chunk failed");
-    }
+    tx.send(crate::audio::AudioChunk {
+      data,
+      channels,
+      sample_rate: target_sr,
+    })?;
   }
 
   Ok(SpeakOutcome::Completed)

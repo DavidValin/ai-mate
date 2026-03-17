@@ -1,10 +1,13 @@
 use clap::Parser;
+use crate::util::get_user_home_path;
 use cpal::traits::DeviceTrait;
 use crossbeam_channel::{bounded, unbounded};
 use std::process;
 use std::sync::{Arc, OnceLock, atomic::Ordering};
 use std::thread::{self, Builder};
 use std::time::Instant;
+use std::time::Duration;
+use crossterm::{terminal::{self}};
 
 mod assets;
 mod audio;
@@ -13,56 +16,65 @@ mod conversation;
 mod keyboard;
 mod llm;
 mod log;
-mod memory;
 mod playback;
 mod record;
 mod state;
 mod stt;
-mod tools;
 mod tts;
 mod ui;
 mod util;
+mod tools;
+mod memory;
 
 static START_INSTANT: OnceLock<Instant> = OnceLock::new();
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  env_logger::init();
-  whisper_rs::install_logging_hooks();
+
+  let args = crate::config::Args::parse();
+  crate::log::set_verbose(args.verbose || false);
+  let _ = START_INSTANT.get_or_init(Instant::now);
+  let args = crate::config::Args::parse();
+  let memory_path = memory::ensure_memory_path();
+
+  // make sure piper phonemes are unpacked
+  assets::ensure_piper_espeak_env();
+  // make sure the user has the whisper + tts models unpacked
+  assets::ensure_assets_env();
+
+  // ---------------------------------------------------
+  // setup thread communication channels
+  // ---------------------------------------------------
+  // broadcast stop signal to all threads
+  let (stop_all_tx, stop_all_rx) = unbounded::<()>();
+  // channel for utterance audio chunks
+  let (tx_utt, rx_utt) = bounded::<audio::AudioChunk>(1);
+  // channel for tts phrases
+  let (tx_tts, rx_tts) = bounded::<(String, u64)>(1);
+  // channel for playback audio chunks
+  let (tx_play, rx_play) = bounded::<audio::AudioChunk>(1);
+  // channel for ui messages
+  let (tx_ui, rx_ui) = bounded::<String>(1);
+  log::set_tx_ui_sender(tx_ui.clone());
 
   if !util::terminal_supported() {
     log::log(
       "error",
-      "Terminal does not support colors or emojis. Please use a different terminal. exiting...",
+      "Terminal does not support colors or emojis. Please use a different terminal. continuing...",
     );
-    process::exit(1);
+    // do not exit; allow the program to continue for debugging
   }
-  assets::ensure_piper_espeak_env();
-  assets::ensure_assets_env();
 
-  crossterm::execute!(
-    std::io::stdout(),
-    crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
-  )
-  .unwrap();
-  println!(
-    r#"
-   █████╗ ██╗      ███╗   ███╗ █████╗ ████████╗███████╗
-  ██╔══██╗██║      ████╗ ████║██╔══██╗╚══██╔══╝██╔════╝
-  ███████║██║█████╗██╔████╔██║███████║   ██║   █████╗  
-  ██╔══██║██║╚════╝██║╚██╔╝██║██╔══██║   ██║   ██╔══╝  
-  ██║  ██║██║      ██║ ╚═╝ ██║██║  ██║   ██║   ███████╗
-  ╚═╝  ╚═╝╚═╝      ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝"#
-  );
-
-  println!(
-    "    \x1b[90mv{}\x1b[0m\n\n\n\n\n",
-    env!("CARGO_PKG_VERSION")
-  );
-
-  let _ = START_INSTANT.get_or_init(Instant::now);
-  let args = crate::config::Args::parse();
-  let memory_path = memory::ensure_memory_path();
+  // ---------------------------------------------------
+  // handle --list-voices
+  // ---------------------------------------------------
+  if args.list_voices {
+    tts::print_voices();
+    process::exit(0);
+  }
+  let _ = terminal::enable_raw_mode();
+  env_logger::init();
+  whisper_rs::install_logging_hooks();
 
   if args.get_memories {
     use crate::memory::Memory;
@@ -189,40 +201,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     process::exit(0);
   }
 
-  // Determine base URL for LLM
-  let base_url = if args.llm == "ollama" {
-    args.ollama_url.clone()
-  } else {
-    args.llama_server_url.clone()
+
+
+  // ---------------------------------------------------
+  // Load Settings
+  // ---------------------------------------------------
+  // force creation of default config file if unexisting
+  let _ = config::ensure_settings_file();
+  let settings_path = get_user_home_path().ok_or("Unable to determine home directory")?
+    .join(".ai-mate").join("settings");
+
+  // load and file settings, merge cli args and validate
+  let agents = match config::load_settings(&settings_path, &args) {
+    Ok(v) => v,
+    Err(e) => {
+      print!("❌ Failed to load settings: {}", e);
+      thread::sleep(Duration::from_millis(300));
+      process::exit(1);
+    }
   };
 
-  if args.list_voices {
-    tts::print_voices();
-    process::exit(0);
-  }
+  let settings = match agents.iter().find(|a| a.name == args.agent).cloned() {
+    Some(a) => a,
+    None => {
+      print!("❌ Agent '{}' not found. Available agents: {}", args.agent, agents.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", "));
+      thread::sleep(Duration::from_millis(300));
+      process::exit(1);
+    }
+  };
 
-  // silence external whisper logs
-  // unsafe {
-  //   whisper_rs::set_log_callback(Some(noop_whisper_log), std::ptr::null_mut());
-  // }
-  // show external whisper.cpp logs
+  // Initialize AppState with the selected voice
+   let state: Arc<state::AppState> = Arc::new(state::AppState::with_agent(settings.clone(), agents.clone()));
 
-  crate::log::set_verbose(args.verbose);
-
-  // Resolve Whisper model path and log it
-  let whisper_path = args.resolved_whisper_model_path();
-  crate::log::log("info", &format!("Whisper model path: {}", whisper_path));
+  state::GLOBAL_STATE.set(state.clone()).unwrap();
+  let ui = state.ui.clone();
+  let status_line = state.status_line.clone();
 
   // Check if the LLM supports tool calls and set the global flag
-  let tools_supported = crate::llm::supports_tool_calls(&args.model, &args.llm, &base_url).await?;
+  let tools_supported = crate::llm::supports_tool_calls(&settings.model, &settings.provider, &settings.baseurl).await?;
   crate::llm::TOOLS_SUPPORTED.set(tools_supported).ok();
   log::log(
     "info",
     &format!("Model supports tools: {}", tools_supported),
   );
 
-  let vad_thresh: f32 = args.sound_threshold_peak;
-  let end_silence_ms: u64 = args.end_silence_ms;
+  // ---------------------------------------------------
+  // Thread: UI
+  // ---------------------------------------------------
+
+  let ui_handle = ui::spawn_ui_thread(
+    ui.clone(),
+    status_line.clone(),
+    rx_ui,
+  );
+
+  // Clones for threads
+  let tx_ui_for_keyboard = tx_ui.clone();
+  let stop_all_rx_for_keyboard = stop_all_rx.clone();
+  let stop_all_rx_for_playback = stop_all_rx.clone();
+  let (stop_play_tx, stop_play_rx) = unbounded::<()>(); // stop playback signal
+
+  // Resolve Whisper model path and log it
+  let whisper_path = config::resolved_whisper_model_path(&settings.whisper_model_path);
+  crate::log::log("info", &format!("Whisper model path: {}", whisper_path));
 
   let host = cpal::default_host();
   let (in_dev, _in_stream) = audio::pick_input_stream(&host).unwrap_or_else(|msg| {
@@ -278,136 +319,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     "info",
     &format!("Playback stream SR (truth): {}", out_sample_rate),
   );
+  // Set global UI sender for memory notifications
+  crate::memory::TX_UI.set(tx_ui.clone()).unwrap();
 
-  // broadcast stop signal to all threads
-  let (stop_all_tx, stop_all_rx) = unbounded::<()>();
-  // channel for utterance audio chunks
-  let (tx_utt, rx_utt) = unbounded::<audio::AudioChunk>();
-  // channel for tts phrases
-  let (tx_tts, rx_tts) = bounded::<(String, u64)>(1);
-  // channel for playback audio chunks
-  let (tx_play, rx_play) = bounded::<audio::AudioChunk>(1);
+  log::log("info", &format!("TTS: {}", settings.tts));
+  log::log("info", &format!("Language: {}", settings.language));
+  log::log("info", &format!("TTS voice: {}", settings.voice));
+  log::log("info", &format!("LLM provider: {}", settings.provider));
 
-  // Clones for threads
-  let rx_play_for_playback = rx_play.clone();
-
-  let stop_all_rx_for_record = stop_all_rx.clone();
-  let stop_all_rx_for_keyboard = stop_all_rx.clone();
-  let stop_all_rx_for_playback = stop_all_rx.clone();
-  let (stop_play_tx, stop_play_rx) = unbounded::<()>(); // stop playback signal
-
-  let available_langs = tts::get_all_available_languages();
-  if !available_langs.contains(&args.language.as_str()) {
-    log::log(
-      "error",
-      &format!(
-        "Unsupported language '{}'. Next languages are supported: {}",
-        args.language,
-        available_langs.join(", ")
-      ),
-    );
-    process::exit(1);
-  }
-
-  let voice_selected = if let Some(v) = &args.voice {
-    v.clone()
-  } else {
-    if args.tts == "opentts" {
-      tts::DEFAULT_OPENTTS_VOICES_PER_LANGUAGE
-        .iter()
-        .find(|(lang, _)| *lang == args.language.as_str())
-        .map(|(_, voice)| (*voice).to_string())
-        .unwrap()
-    } else {
-      tts::DEFAULTKOKORO_VOICES_PER_LANGUAGE
-        .iter()
-        .find(|(lang, _)| *lang == args.language.as_str())
-        .map(|(_, voice)| (*voice).to_string())
-        .unwrap()
-    }
-  };
-
-  let valid_voices: Vec<&str> = tts::get_voices_for(&args.tts, &args.language);
-  if valid_voices.is_empty() {
-    log::log(
-      "error",
-      &format!(
-        "No available voices for TTS '{}' and language '{}'.",
-        args.tts, args.language
-      ),
-    );
-    process::exit(1);
-  }
-  if !valid_voices.contains(&voice_selected.as_str()) {
-    log::log(
-      "error",
-      &format!(
-        "Invalid voice '{}' for TTS '{}' and language '{}'. Available voices: {}",
-        voice_selected,
-        args.tts,
-        args.language,
-        valid_voices.join(", ")
-      ),
-    );
-    process::exit(1);
-  }
-  log::log("info", &format!("TTS system: {}", args.tts));
-  if args.tts == "kokoro" {
+  if settings.tts == "kokoro" {
     tts::start_kokoro_engine().await?;
   }
-  log::log("info", &format!("Language: {}", args.language));
-  log::log("info", &format!("TTS voice: {}", voice_selected));
-  log::log("info", &format!("LLM engine: {}", args.llm));
-  if args.llm == "ollama" {
-    log::log("info", &format!("ollama base url: {}", args.ollama_url));
+
+  if settings.provider == "ollama" {
+    log::log("info", &format!("ollama base url: {}", settings.baseurl));
   } else {
     log::log(
       "info",
-      &format!("llama-server url: {}", args.llama_server_url),
+      &format!("llama-server url: {}", settings.baseurl),
     );
   }
-  // initialize state after voice_selected
-  let state = Arc::new(state::AppState::new_with_voice(voice_selected.clone()));
+  log::log(
+    "info",
+    &format!(
+      "sound_threshold_peak={:.3}  end_silence_ms={}  hangover_ms={}",
+      settings.sound_threshold_peak, settings.end_silence_ms, config::HANGOVER_MS_DEFAULT
+    ),
+  );
+  
   let recording_paused = state.recording_paused.clone();
   let recording_paused_for_record = recording_paused.clone();
-  if args.ptt {
+  if state.ptt.load(Ordering::Relaxed) {
     recording_paused.store(true, Ordering::Relaxed);
   }
-  state::GLOBAL_STATE.set(state.clone()).unwrap();
-
   let interrupt_counter = state.interrupt_counter.clone();
   let paused = state.playback.paused.clone();
   let playback_active = state.playback.playback_active.clone();
   let gate_until_ms = state.playback.gate_until_ms.clone();
-
-  let ui = state.ui.clone();
   let volume = state.playback.volume.clone();
   let conversation_history = state.conversation_history.clone();
   let volume_play = volume.clone();
   let volume_rec = volume.clone();
-  let status_line = state.status_line.clone();
 
-  // ---- Thread: UI Thread ----
-  let (tx_ui, rx_ui) = unbounded::<String>();
-  let ui_handle = ui::spawn_ui_thread(
-    ui.clone(),
-    stop_all_rx.clone(),
-    status_line.clone(),
-    ui.peak.clone(),
-    rx_ui,
-  );
-  // Set global UI sender for memory notifications
-  crate::memory::TX_UI.set(tx_ui.clone()).unwrap();
+  // ---------------------------------------------------
+  // Thread: TTS
+  // ---------------------------------------------------
 
-  // ---- Thread: TTS -----
   let stop_play_tx_for_tts = stop_play_tx.clone();
   let tts_handle = thread::spawn({
-    let voice_state = state.voice.clone();
-    let out_sample_rate = out_sample_rate.clone();
-    let tx_play = tx_play.clone();
-    let stop_all_rx = stop_all_rx.clone();
-    let interrupt_counter = interrupt_counter.clone();
-    let args = args.clone();
+  let voice_state = state.voice.clone();
+  let out_sample_rate = out_sample_rate.clone();
+  let tx_play = tx_play.clone();
+  let stop_all_rx = stop_all_rx.clone();
+  let interrupt_counter = interrupt_counter.clone();
+
     move || {
       tts::tts_thread(
         voice_state,
@@ -415,7 +380,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tx_play,
         stop_all_rx,
         interrupt_counter,
-        args,
         rx_tts,
         stop_play_tx_for_tts,
       )
@@ -423,7 +387,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
   });
 
-  // ---- Thread: Playback (persistent) ----
+  // ---------------------------------------------------
+  // Thread: Playback
+  // ---------------------------------------------------
+
+  let rx_play_for_playback = rx_play.clone();
   let playback_active_for_play = playback_active.clone();
   let gate_until_ms_for_play = gate_until_ms.clone();
   let paused_for_play = paused.clone();
@@ -449,12 +417,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
   });
 
-  // ---- Thread: record ----
+  // ---------------------------------------------------
+  // Thread: record
+  // ---------------------------------------------------
   let tx_utt_for_rec = tx_utt.clone();
   let playback_active_for_rec = playback_active.clone();
   let gate_until_ms_for_rec = gate_until_ms.clone();
   let interrupt_counter_for_rec = interrupt_counter.clone();
-  let stop_all_rx_for_record_for_rec = stop_all_rx_for_record.clone();
+  let stop_all_rx_for_record = stop_all_rx.clone();
   let ui_peak_for_rec = ui.peak.clone();
   let ui_for_rec = ui.clone();
   let volume_rec_for_rec = volume_rec.clone();
@@ -472,12 +442,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
           in_cfg,
           tx_utt_for_rec.clone(),
           tx_ui_for_record,
-          vad_thresh,
-          end_silence_ms,
+          settings.sound_threshold_peak,
+          settings.end_silence_ms,
           playback_active_for_rec.clone(),
           gate_until_ms_for_rec.clone(),
           interrupt_counter_for_rec.clone(),
-          stop_all_rx_for_record_for_rec.clone(),
+          stop_all_rx_for_record.clone(),
           ui_peak_for_rec.clone(),
           ui_for_rec.clone(),
           volume_rec_for_rec.clone(),
@@ -486,13 +456,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       }
     })?;
 
-  // ---- Thread: conversation ----
+  // ---------------------------------------------------
+  // Thread: conversation
+  // ---------------------------------------------------
   let rx_utt_for_conv = rx_utt.clone();
   let stop_all_rx_for_conv = stop_all_rx.clone();
   let stop_all_tx_for_conv = stop_all_tx.clone();
   let interrupt_counter_for_conv = interrupt_counter.clone();
   let whisper_path_for_conv = whisper_path.clone();
-  let args_for_conv = args.clone();
+  let settings_for_conv = settings.clone();
   let ui_for_conv = ui.clone();
   let conversation_history_for_conv = conversation_history.clone();
   let tx_tts_for_conv = tx_tts.clone();
@@ -504,7 +476,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         stop_all_tx_for_conv.clone(),
         interrupt_counter_for_conv.clone(),
         whisper_path_for_conv.clone(),
-        args_for_conv.clone(),
+        settings_for_conv.clone(),
         ui_for_conv.clone(),
         conversation_history_for_conv.clone(),
         tx_ui.clone(),
@@ -513,44 +485,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
   });
 
-  // ---- Thread: keyboard ----
-  let state_for_key = state.clone();
-  let paused_for_key = paused.clone();
+  // ---------------------------------------------------
+  // Thread: keyboard
+  // ---------------------------------------------------
   let recording_paused_for_key = recording_paused.clone();
-  let voice_for_key = state_for_key.voice.clone();
-  let args_tts_for_key = args.tts.clone();
-  let args_language_for_key = args.language.clone();
   let stop_all_tx_for_key = stop_all_tx.clone();
   let stop_play_tx_for_key = stop_play_tx.clone();
   let key_handle = thread::spawn({
     move || {
       keyboard::keyboard_thread(
+        tx_ui_for_keyboard.clone(),
         stop_all_tx_for_key.clone(),
         stop_all_rx_for_keyboard.clone(),
-        paused_for_key.clone(),
         recording_paused_for_key.clone(),
-        voice_for_key.clone(),
-        args_tts_for_key.clone(),
-        args_language_for_key.clone(),
         stop_play_tx_for_key.clone(),
-        interrupt_counter.clone(),
-        args.ptt,
+        interrupt_counter.clone()
       )
     }
   });
 
-  // Print config knobs
-  let hangover_ms = util::env_u64("HANGOVER_MS", config::HANGOVER_MS_DEFAULT);
-  log::log(
-    "info",
-    &format!(
-      "sound_threshold_peak={:.3}  end_silence_ms={}  hangover_ms={}",
-      vad_thresh, end_silence_ms, hangover_ms
-    ),
-  );
-
-  // Block until keyboard thread exits (Enter/Esc), then propagate stop.
-  let _ = key_handle.join();
+  // If running in interactive terminal, block until keyboard thread exits.
+  if util::terminal_supported() {
+    let _ = key_handle.join();
+  }
   let _ = stop_all_tx.try_send(());
 
   drop(stop_play_tx);

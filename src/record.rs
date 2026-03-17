@@ -3,13 +3,12 @@
 // ------------------------------------------------------------------
 
 use crate::START_INSTANT;
-use crate::ui::STOP_STREAM;
 use cpal::traits::{DeviceTrait, StreamTrait};
 use crossbeam_channel::{Receiver, Sender};
 use std::sync::OnceLock;
 use std::sync::{
-  Arc, Mutex,
   atomic::{AtomicBool, AtomicU64, Ordering},
+  Arc, Mutex,
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -243,7 +242,6 @@ fn build_input_f32(
           let mut vol = volume.lock().unwrap();
           *vol = 0.0;
           interrupt_counter.fetch_add(1, Ordering::SeqCst);
-          STOP_STREAM.store(true, Ordering::Relaxed);
           let _ = tx_ui.send("stop_ui|".to_string());
           stop_sent.store(true, Ordering::Relaxed);
           gate_until_ms.store(
@@ -407,7 +405,6 @@ fn build_input_i16(
           let mut vol = volume.lock().unwrap();
           *vol = 0.0;
           interrupt_counter.fetch_add(1, Ordering::SeqCst);
-          STOP_STREAM.store(true, Ordering::Relaxed);
           let _ = tx_ui.send("stop_ui|".to_string());
           stop_sent.store(true, Ordering::Relaxed);
           gate_until_ms.store(
@@ -569,7 +566,6 @@ fn build_input_u16(
           let mut vol = volume.lock().unwrap();
           *vol = 0.0;
           interrupt_counter.fetch_add(1, Ordering::SeqCst);
-          STOP_STREAM.store(true, Ordering::Relaxed);
           let _ = tx_ui.send("stop_ui|".to_string());
           stop_sent.store(true, Ordering::Relaxed);
           gate_until_ms.store(
