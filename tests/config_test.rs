@@ -68,6 +68,7 @@ whisper_model_path = "~/.whisper-models/ggml-tiny.bin"
     agent: "main agent".to_string(),
     list_voices: false,
     ptt: Some(true),
+    debate: None,
   };
 
   let agents = load_settings(&path, &args).expect("Failed to load settings");
@@ -129,6 +130,7 @@ whisper_model_path = ~/.whisper-models/ggml-tiny.bin
     agent: "Test Agent".to_string(),
     list_voices: false,
     ptt: None,
+    debate: None,
   };
 
   let agents = load_settings(&path, &args).expect("Failed to load settings");

@@ -44,7 +44,7 @@ pub fn speak(
   voice: &str,
   out_sample_rate: u32, // MUST match CPAL playback SR
   tx: Sender<crate::audio::AudioChunk>,
-  stop_all_rx: Receiver<()>,
+  stop_all_rx: &Receiver<()>,
   interrupt_counter: Arc<AtomicU64>,
   expected_interrupt: u64,
 ) -> Result<SpeakOutcome, Box<dyn std::error::Error + Send + Sync>> {
@@ -56,19 +56,18 @@ pub fn speak(
       voice,
       out_sample_rate,
       tx,
-      stop_all_rx,
+      stop_all_rx.clone(),
       interrupt_counter,
       expected_interrupt,
     )
   } else {
-    // NOTE: make espeak find phonemes for chinese mandarin
     let lang = if language == "zh" { "cmn" } else { language };
     crate::tts::speak_via_kokoro_stream(
       text,
       lang,
       voice,
       tx,
-      stop_all_rx,
+      stop_all_rx.clone(),
       interrupt_counter,
       expected_interrupt,
     )
@@ -78,41 +77,42 @@ pub fn speak(
 
 // tts_thread - dedicated thread for speaking phrases
 pub fn tts_thread(
-  voice_state: Arc<Mutex<String>>,
   out_sample_rate: u32,
   tx_play: Sender<crate::audio::AudioChunk>,
   stop_all_rx: Receiver<()>,
   interrupt_counter: Arc<AtomicU64>,
-  rx_tts: Receiver<(String, u64)>,
+  rx_tts: Receiver<(String, u64, String)>,
   stop_play_tx: Sender<()>,
+  tx_tts_done: Sender<()>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   loop {
     // Wait for either a new phrase or a stop signal
     crossbeam_channel::select! {
       recv(rx_tts) -> msg => {
-        let (phrase, expected_interrupt) = match msg {
+        let (phrase, expected_interrupt, voice) = match msg {
           Ok(v) => v,
           Err(_) => break,
         };
-        let voice = voice_state.lock().unwrap().clone();
+        // use the voice provided in the message
+        // let voice = voice_state.lock().unwrap().clone();
         let state = GLOBAL_STATE.get().expect("AppState not initialized");
         let tts_val = state.tts.lock().unwrap().clone();
         crate::log::log("info", tts_val.as_str());
         let language = state.language.lock().unwrap().clone();
         crate::log::log("info", language.as_str());
-      
         let outcome = crate::tts::speak(
           &phrase,
-          tts_val.as_str(),
-          crate::config::OPENTTS_BASE_URL_DEFAULT,
-          language.as_str(),
-          voice.as_str(),
+          &tts_val,
+          &state.baseurl.lock().unwrap().clone(),
+          &language,
+          &voice,
           out_sample_rate,
           tx_play.clone(),
-          stop_all_rx.clone(),
+          &stop_all_rx,
           interrupt_counter.clone(),
           expected_interrupt,
         );
+
         match outcome {
           Ok(o) => {
             if o == crate::tts::SpeakOutcome::Interrupted {
@@ -124,14 +124,21 @@ pub fn tts_thread(
                 }
               }
               let _ = stop_play_tx.try_send(());
+              // Signal completion before continuing
+              let _ = tx_tts_done.send(());
               continue;
             }
+            crate::log::log("info", "TTS completed");
+            let _ = tx_tts_done.send(());
           }
           Err(_e) => {
             crate::log::log("error", &format!("TTS error. Can't play audio speech. Make sure OpenTTS is running: docker run --rm -p 5500:5500 synesthesiam/opentts:all"));
+            // Signal completion before breaking
+            let _ = tx_tts_done.send(());
             break;
           }
         }
+
         // Stop if interrupt counter changed while speaking
         if interrupt_counter.load(Ordering::SeqCst) != expected_interrupt {
             // Drain any queued phrases before exiting
@@ -141,12 +148,13 @@ pub fn tts_thread(
             continue;
         }
       },
-        recv(stop_all_rx) -> _ => {
-            // Gracefully exit on stop signal
-            break;
-        }
-    }
+      recv(stop_all_rx) -> _ => {
+        // Gracefully exit on stop signal
+        break;
+      }
   }
+}
+
   Ok(())
 }
 
@@ -493,7 +501,7 @@ pub fn speak_via_opentts_stream(
   stream_wav16le_over_http(
     &url,
     tx,
-    stop_all_rx,
+    stop_all_rx.clone(),
     out_sample_rate,
     interrupt_counter,
     expected_interrupt,

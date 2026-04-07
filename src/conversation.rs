@@ -46,7 +46,7 @@ pub fn conversation_thread(
   ui: crate::state::UiState,
   conversation_history: ConversationHistory,
   tx_ui: Sender<String>,
-  tts_tx: Sender<(String, u64)>,
+  tts_tx: Sender<(String, u64, String)>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ctx = init_whisper_context(&model_path);
   crate::log::log("info", &format!("LLM model: {}", settings.model));
@@ -141,6 +141,7 @@ pub fn conversation_thread(
         let conversation_history_for_closure_cloned = conversation_history_cloned_for_closure.clone();
 
         // called on every chunk received from llm
+        let voice_for_tts = settings.voice.clone();
         let on_piece = move |piece: &str| {
           let hist = conversation_history_for_closure_cloned.clone();
           if interrupted {
@@ -167,7 +168,7 @@ pub fn conversation_thread(
             }
             hist.lock().unwrap().push(ChatMessage{role:"assistant".to_string(), content:phrase.clone()});
             // send the complete phrase to tts
-            let _ = tts_tx_cloned_for_closure.send((strip_special_chars(&phrase), my_interrupt));
+            let _ = tts_tx_cloned_for_closure.send((strip_special_chars(&phrase), my_interrupt, voice_for_tts.clone()));
           }
           // send raw piece immediately
           let _ = tx_ui_cloned_for_closure.send(format!("stream|{}", piece));
@@ -238,7 +239,7 @@ pub fn conversation_thread(
           let _ = tx_ui.send(phrase_clone);
           conversation_history.lock().unwrap().push(ChatMessage{role:"assistant".to_string(), content:phrase.clone()});
           let current_interrupt = interrupt_counter.load(Ordering::SeqCst);
-          let _ = tts_tx.send((phrase.clone(), current_interrupt));
+          let _ = tts_tx.send((phrase.clone(), current_interrupt, settings.voice.clone()));
         }
       }
     }
@@ -298,7 +299,8 @@ fn strip_special_chars(s: &str) -> String {
     if !inside {
       result.extend(part.chars().filter(|c| {
         ![
-          '+', '.', '~', '*', '&', '-', ',', ';', ':', '(', ')', '[', ']', '{', '}', '"', '\'', '#', '`', '|'
+          '+', '.', '~', '*', '&', '-', ',', ';', ':', '(', ')', '[', ']', '{', '}', '"', '\'',
+          '#', '`', '|',
         ]
         .contains(c)
       }));

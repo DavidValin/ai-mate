@@ -1,10 +1,10 @@
 use clap::Parser;
 use crate::util::get_user_home_path;
 use cpal::traits::DeviceTrait;
-use crossbeam_channel::{bounded, unbounded};
+use crossbeam_channel::{bounded, unbounded, Sender};
 use std::process;
 use std::sync::{Arc, OnceLock, atomic::Ordering};
-use std::thread::{self, Builder};
+use std::thread::{self, Builder as ThreadBuilder};
 use std::time::Instant;
 use std::time::Duration;
 use crossterm::{terminal::{self}};
@@ -22,9 +22,11 @@ mod state;
 mod stt;
 mod tts;
 mod ui;
+mod debate;
 mod util;
 
 static START_INSTANT: OnceLock<Instant> = OnceLock::new();
+
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
@@ -45,7 +47,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // channel for utterance audio chunks
   let (tx_utt, rx_utt) = bounded::<audio::AudioChunk>(1);
   // channel for tts phrases
-  let (tx_tts, rx_tts) = bounded::<(String, u64)>(1);
+  let (tx_tts, rx_tts) = unbounded::<(String, u64, String)>();
+  let (tts_done_tx, tts_done_rx) = crossbeam_channel::bounded(0);
+
   // channel for playback audio chunks
   let (tx_play, rx_play) = bounded::<audio::AudioChunk>(1);
   // channel for ui messages
@@ -88,7 +92,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       process::exit(1);
     }
   };
-
   let settings = match agents.iter().find(|a| a.name == args.agent).cloned() {
     Some(a) => a,
     None => {
@@ -99,21 +102,39 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   };
 
   // Initialize AppState with the selected voice
-   let state: Arc<state::AppState> = Arc::new(state::AppState::with_agent(settings.clone(), agents.clone()));
+  let state: Arc<state::AppState> = Arc::new(state::AppState::with_agent(settings.clone(), agents.clone()));
 
   state::GLOBAL_STATE.set(state.clone()).unwrap();
   let ui = state.ui.clone();
   let status_line = state.status_line.clone();
 
-  // ---------------------------------------------------
-  // Thread: UI
-  // ---------------------------------------------------
+  // interrupt counter
+  let interrupt_counter = state.interrupt_counter.clone();
 
-  let ui_handle = ui::spawn_ui_thread(
-    ui.clone(),
-    status_line.clone(),
-    rx_ui,
-  );
+  // Start UI thread
+  let ui_handle = ui::spawn_ui_thread(ui.clone(), status_line.clone(), rx_ui);
+
+  // If debate mode requested, spawn debate thread
+  if let Some(subject) = args.debate {
+    let tx_tts_clone = tx_tts.clone();
+    let interrupt_clone = interrupt_counter.clone();
+    let debate_agents = agents.clone();
+    let tx_ui_clone = tx_ui.clone();
+    let _debate_handle = thread::spawn(move || {
+      debate::run_debate(subject, debate_agents, tx_tts_clone, tx_ui_clone, interrupt_clone, tts_done_rx.clone());
+    });
+    // keep reference to join later
+    // keep debate thread running in background; no join here to avoid blocking main
+  }
+  
+  let settings = match agents.iter().find(|a| a.name == args.agent).cloned() {
+    Some(a) => a,
+    None => {
+      print!("❌ Agent '{}' not found. Available agents: {}", args.agent, agents.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", "));
+      thread::sleep(Duration::from_millis(300));
+      process::exit(1);
+    }
+  };
 
   // Clones for threads
   let tx_ui_for_keyboard = tx_ui.clone();
@@ -225,21 +246,21 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
   let stop_play_tx_for_tts = stop_play_tx.clone();
   let tts_handle = thread::spawn({
-  let voice_state = state.voice.clone();
-  let out_sample_rate = out_sample_rate.clone();
-  let tx_play = tx_play.clone();
-  let stop_all_rx = stop_all_rx.clone();
-  let interrupt_counter = interrupt_counter.clone();
+    // voice_state not needed; voice passed per message
+    let out_sample_rate = out_sample_rate.clone();
+    let tx_play = tx_play.clone();
+    let stop_all_rx = stop_all_rx.clone();
+    let interrupt_counter = interrupt_counter.clone();
 
     move || {
       tts::tts_thread(
-        voice_state,
         out_sample_rate,
         tx_play,
         stop_all_rx,
         interrupt_counter,
         rx_tts,
         stop_play_tx_for_tts,
+        tts_done_tx,
       )
       .unwrap();
     }
@@ -288,7 +309,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let volume_rec_for_rec = volume_rec.clone();
   let recording_paused_for_record_for_rec = recording_paused_for_record.clone();
   let tx_ui_for_record = tx_ui.clone();
-  let rec_handle = Builder::new()
+  let rec_handle = ThreadBuilder::new()
     .name("record_thread".to_string())
     .stack_size(4 * 1024 * 1024)
     .spawn({

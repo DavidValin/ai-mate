@@ -4,7 +4,7 @@
 
 use crate::tts;
 use crate::util::get_user_home_path;
-use anyhow::{Error};
+use anyhow::Error;
 use clap::Parser;
 use cpal::traits::DeviceTrait;
 use cpal::Device;
@@ -100,6 +100,9 @@ pub struct Args {
 
   #[arg(long)]
   pub ptt: Option<bool>,
+
+  #[arg(long, value_name = "SUBJECT")]
+  pub debate: Option<String>,
 }
 
 // internal static values
@@ -174,7 +177,7 @@ pub fn load_settings(
     // Preprocess the block to remove surrounding quotes from values
     let mut clean_section = String::new();
     // Track ptt value string if present
-    let mut ptt_value_str: Option<String> = None;
+    let _ptt_value_str: Option<String> = None;
     for line in block.lines() {
       if let Some(idx) = line.find('=') {
         let (key, val_part) = line.split_at(idx);
@@ -270,12 +273,14 @@ pub fn load_settings(
       errors.push(format!("Agent {}: {}", agent.name, e));
     }
 
-    if let Err(e) = validate_language(&agent.language, &agent.tts).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    if let Err(e) = validate_language(&agent.language, &agent.tts)
+      .map_err(|e: std::io::Error| -> Error { Error::new(e) })
     {
       errors.push(format!("Agent {}: {}", agent.name, e));
     }
 
-    if let Err(e) = validate_voice(&agent.voice, &agent.language, &agent.tts).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    if let Err(e) = validate_voice(&agent.voice, &agent.language, &agent.tts)
+      .map_err(|e: std::io::Error| -> Error { Error::new(e) })
     {
       errors.push(format!("Agent {}: {}", agent.name, e));
     }
@@ -455,8 +460,9 @@ fn validate_voice(voice: &str, language: &str, tts: &str) -> Result<(), std::io:
       std::io::ErrorKind::Other,
       format!("Unsupported voice '{}' for language {}", voice, language),
     ));
+  } else {
+    Ok(())
   }
-  Ok(())
 }
 
 fn validate_tts(tts: &str) -> Result<(), std::io::Error> {
