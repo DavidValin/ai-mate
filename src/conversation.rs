@@ -47,6 +47,7 @@ pub fn conversation_thread(
   conversation_history: ConversationHistory,
   tx_ui: Sender<String>,
   tts_tx: Sender<(String, u64, String)>,
+  tx_debate: Sender<crate::conversation::ChatMessage>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ctx = init_whisper_context(&model_path);
   crate::log::log("info", &format!("LLM model: {}", settings.model));
@@ -117,6 +118,8 @@ pub fn conversation_thread(
         let _ = tx_ui.send("line|\n".to_string());
 
         conversation_history.lock().unwrap().push(ChatMessage{role:"user".to_string(), content:user_text.clone()});
+        // Notify debate thread of user input
+        let _ = tx_debate.send(ChatMessage{role:"user".to_string(), content:user_text.clone()});
         ui.thinking.store(true, Ordering::Relaxed);
 
         // Snapshot interruption counter for this assistant turn.
