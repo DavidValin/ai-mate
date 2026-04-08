@@ -27,7 +27,6 @@ mod util;
 
 static START_INSTANT: OnceLock<Instant> = OnceLock::new();
 
-
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
   let args = crate::config::Args::parse();
@@ -139,7 +138,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _debate_handle = thread::spawn(move || {
       debate::run_debate(subject, debate_agents, tx_tts_clone, tx_ui_clone, interrupt_clone, tts_done_rx.clone());
     });
-    // keep debate thread running in background; no join here to avoid blocking main
   }
   
   let settings = match agents.iter().find(|a| a.name == args.agent).cloned() {

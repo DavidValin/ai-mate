@@ -49,7 +49,7 @@ pub fn run_debate(subject: String, agents: Vec<crate::config::AgentSettings>, tx
      };
      let mut messages = history.clone();
      messages.push(ChatMessage { role: "system".to_string(), content: system_prompt.clone() });
-     messages.push(ChatMessage { role: "user".to_string(), content: user_msg });
+     messages.push(ChatMessage { role: "assistant".to_string(), content: user_msg });
      let reply = rt.block_on(debate_get_response(messages, current_agent)).unwrap_or_else(|e| {
        eprintln!("Error getting response: {}", e);
        std::process::exit(1);
@@ -57,8 +57,8 @@ pub fn run_debate(subject: String, agents: Vec<crate::config::AgentSettings>, tx
      // Append assistant reply to conversation history for subsequent turns
      history.push(ChatMessage{role:"assistant".to_string(), content: reply.clone()});
      let _ = tx_ui.send("line| ".to_string());
-    let LABEL = format!("\x1b[48;5;22;37m{}:\x1b[0m", current_agent.name);
-    let _ = tx_ui.send(format!("line|{}", LABEL));
+    let label = format!("\x1b[48;5;22;37m{}:\x1b[0m", current_agent.name);
+    let _ = tx_ui.send(format!("line|{}", label));
     let _ = tx_ui.send(format!("line|{}", reply.trim()));
     let current_interrupt = interrupt_counter.load(std::sync::atomic::Ordering::SeqCst);
     {
