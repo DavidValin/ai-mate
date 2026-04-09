@@ -39,8 +39,9 @@ https://github.com/user-attachments/assets/e612feaa-8ab0-4761-9c67-53ec7d40cab7
 
 ## Features
 
-- 📌 Realtime agent swap: `change the agent by pressing <ARROW_LEFT> / <ARROW_RIGHT> (applicable to next response)`
 - 📌 Continuous Voice chat (live conversation): `records user continuously and stops on silence, submitting the request to the agent`
+- 📌 AI agents debate (2 agents talking to each other): `give an initial input and let the agents talk to each other. You can interrupt in the middle of the debate changing the subject`
+- 📌 Realtime agent swap: `change the agent by pressing <ARROW_LEFT> / <ARROW_RIGHT> (applicable to next response)`
 - 📌 Voice interrupt: `the agent stops talking if you interrupt via voice`
 - 📌 Recording Pause / Resume: `toggle "<SPACE>" key to pause / resume voice recording only`
 - 📌 Stop PlayBack: `press "<ESCAPE>" ONCE to stop the playback for the current response`
