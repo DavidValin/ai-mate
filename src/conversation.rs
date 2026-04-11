@@ -111,17 +111,16 @@ pub fn conversation_thread(
           if !user_text.is_empty() {
             let _ = tx_ui.send("line|\n".to_string());
             let _ = tx_ui.send(format!("line|{}", crate::ui::USER_LABEL));
-            let _ = tx_ui.send(format!("line|{}", user_text));
-            let _ = tx_ui.send("line|\n".to_string());
-            
+            let _ = tx_ui.send(format!("stream|{}", user_text));
+            let _ = tx_ui.send("line|".to_string());
+
             conversation_history.lock().unwrap().push(ChatMessage{role:"user".to_string(), content:user_text.clone()});
-            
+
             // Store user message for next agent to respond to
             pending_user_msg = Some(user_text.clone());
             debate_interrupted = false;
             state.playback.playback_active.store(false, Ordering::Relaxed);
           }
-          
           continue;
         }
         
@@ -193,7 +192,8 @@ pub fn conversation_thread(
             let _ = tx_ui.send("line| ".to_string());
             let label = format!("\x1b[48;5;22;37m{}:\x1b[0m", current_agent.name);
             let _ = tx_ui.send(format!("line|{}", label));
-            let _ = tx_ui.send(format!("line|{}", reply.trim()));
+            let _ = tx_ui.send(format!("stream|{}", reply.trim()));
+            let _ = tx_ui.send("line|".to_string());
             
             // Temporarily switch to current agent's voice/tts settings
             let original_voice = {
@@ -324,8 +324,8 @@ pub fn conversation_thread(
         }
         let _ = tx_ui.send("line|\n".to_string());
         let _ = tx_ui.send(format!("line|{}", crate::ui::USER_LABEL));
-        let _ = tx_ui.send(format!("line|{}", user_text));
-        let _ = tx_ui.send("line|\n".to_string());
+        let _ = tx_ui.send(format!("stream|{}", user_text));
+        let _ = tx_ui.send("line|".to_string());
 
         conversation_history.lock().unwrap().push(ChatMessage{role:"user".to_string(), content:user_text.clone()});
         

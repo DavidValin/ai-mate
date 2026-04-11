@@ -91,20 +91,28 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       process::exit(1);
     }
   };
-  let settings = match agents.iter().find(|a| a.name == args.agent).cloned() {
-    Some(a) => a,
+  let settings = match &args.agent {
+    Some(agent_name) => {
+      match agents.iter().find(|a| a.name == *agent_name).cloned() {
+        Some(a) => a,
+        None => {
+          print!(
+            "❌ Agent '{}' not found. Available agents: {}",
+            agent_name,
+            agents
+              .iter()
+              .map(|a| a.name.as_str())
+              .collect::<Vec<&str>>()
+              .join(", ")
+          );
+          thread::sleep(Duration::from_millis(300));
+          process::exit(1);
+        }
+      }
+    }
     None => {
-      print!(
-        "❌ Agent '{}' not found. Available agents: {}",
-        args.agent,
-        agents
-          .iter()
-          .map(|a| a.name.as_str())
-          .collect::<Vec<&str>>()
-          .join(", ")
-      );
-      thread::sleep(Duration::from_millis(300));
-      process::exit(1);
+      // Pick the first agent if none specified
+      agents.first().unwrap().clone()
     }
   };
 
@@ -224,6 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     &format!("Playback stream SR (truth): {}", out_sample_rate),
   );
 
+  log::log("info", &format!("Agent: {}", settings.name));
   log::log("info", &format!("TTS: {}", settings.tts));
   log::log("info", &format!("Language: {}", settings.language));
   log::log("info", &format!("TTS voice: {}", settings.voice));

@@ -6,11 +6,11 @@ use crate::tts;
 use crate::util::get_user_home_path;
 use anyhow::Error;
 use clap::Parser;
-use cpal::Device;
 use cpal::traits::DeviceTrait;
+use cpal::Device;
 use serde::Deserialize;
 use serde_ini::from_str;
-use std::fs::{File, create_dir_all, read_to_string};
+use std::fs::{create_dir_all, read_to_string, File};
 use std::io::Write;
 use std::panic;
 use std::process;
@@ -95,8 +95,8 @@ pub struct Args {
   #[arg(long, action=clap::ArgAction::SetTrue)]
   pub list_voices: bool,
 
-  #[arg(long, default_value = "main agent", value_parser=validate_agent_name)]
-  pub agent: String,
+  #[arg(long, value_parser=validate_agent_name)]
+  pub agent: Option<String>,
 
   #[arg(long)]
   pub ptt: Option<bool>,
@@ -299,10 +299,12 @@ pub fn load_settings(
   }
 
   // Validate CLI args
-  if let Err(e) =
-    validate_agent_name(&args.agent).map_err(|e: std::io::Error| -> Error { Error::new(e) })
-  {
-    return Err(e);
+  if let Some(ref agent_name) = args.agent {
+    if let Err(e) =
+      validate_agent_name(agent_name).map_err(|e: std::io::Error| -> Error { Error::new(e) })
+    {
+      return Err(e);
+    }
   }
 
   // Merge args into each agent's settings
