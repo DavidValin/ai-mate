@@ -92,24 +92,22 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
   };
   let settings = match &args.agent {
-    Some(agent_name) => {
-      match agents.iter().find(|a| a.name == *agent_name).cloned() {
-        Some(a) => a,
-        None => {
-          print!(
-            "❌ Agent '{}' not found. Available agents: {}",
-            agent_name,
-            agents
-              .iter()
-              .map(|a| a.name.as_str())
-              .collect::<Vec<&str>>()
-              .join(", ")
-          );
-          thread::sleep(Duration::from_millis(300));
-          process::exit(1);
-        }
+    Some(agent_name) => match agents.iter().find(|a| a.name == *agent_name).cloned() {
+      Some(a) => a,
+      None => {
+        print!(
+          "❌ Agent '{}' not found. Available agents: {}",
+          agent_name,
+          agents
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<&str>>()
+            .join(", ")
+        );
+        thread::sleep(Duration::from_millis(300));
+        process::exit(1);
       }
-    }
+    },
     None => {
       // Pick the first agent if none specified
       agents.first().unwrap().clone()
@@ -159,7 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         process::exit(1);
       }
     };
-    
+
     // Initialize debate mode in state
     state.debate_enabled.store(true, Ordering::SeqCst);
     *state.debate_subject.lock().unwrap() = subject;
@@ -380,7 +378,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let tx_tts_for_conv = tx_tts.clone();
   let tx_ui_for_conv = tx_ui.clone();
   let tts_done_rx_for_conv = tts_done_rx.clone();
-  
+
   let conv_handle = thread::spawn(move || {
     conversation::conversation_thread(
       rx_utt_for_conv,

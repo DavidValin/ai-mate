@@ -2,14 +2,14 @@
 //  Conversation
 // ------------------------------------------------------------------
 
-use crate::state::GLOBAL_STATE;
 use crate::START_INSTANT;
-use crossbeam_channel::{select, Receiver, Sender};
+use crate::state::GLOBAL_STATE;
+use crossbeam_channel::{Receiver, Sender, select};
 use std::cell::Cell;
 use std::sync::OnceLock;
 use std::sync::{
-  atomic::{AtomicU64, Ordering},
   Arc,
+  atomic::{AtomicU64, Ordering},
 };
 use tokio::runtime::Builder as TokioBuilder;
 
@@ -74,27 +74,30 @@ pub fn conversation_thread(
         if stop_all_rx.try_recv().is_ok() {
           break;
         }
-        
+
         // Check for interruption
         let current_interrupt = interrupt_counter.load(Ordering::SeqCst);
         if current_interrupt != last_interrupt {
           debate_interrupted = true;
           last_interrupt = current_interrupt;
           // Stop any ongoing playback
-          state.playback.playback_active.store(false, Ordering::Relaxed);
+          state
+            .playback
+            .playback_active
+            .store(false, Ordering::Relaxed);
           // Skip to waiting for user input
           crate::log::log("debug", "Debate interrupted, waiting for user input");
         }
-        
+
         // Check for user input with short timeout
         let user_input_result = rx_utt.recv_timeout(std::time::Duration::from_millis(100));
-        
+
         if let Ok(utt) = user_input_result {
           // User provided input - process it
           let state = GLOBAL_STATE.get().expect("AppState not initialized");
           state.conversation_paused.store(false, Ordering::Relaxed);
           state.processing_response.store(true, Ordering::Relaxed);
-          
+
           let pcm_f32: Vec<f32> = utt.data.clone();
           let mono_f32 = if utt.channels == 1 {
             pcm_f32.clone()
@@ -109,36 +112,47 @@ pub fn conversation_thread(
             }
             mono
           };
-          
-          let user_text = crate::stt::whisper_transcribe_with_ctx(&ctx, &mono_f32, utt.sample_rate, &state.language.lock().unwrap())?;
+
+          let user_text = crate::stt::whisper_transcribe_with_ctx(
+            &ctx,
+            &mono_f32,
+            utt.sample_rate,
+            &state.language.lock().unwrap(),
+          )?;
           let user_text = user_text.trim().to_string();
-          
+
           if !user_text.is_empty() {
             let _ = tx_ui.send("line|\n".to_string());
             let _ = tx_ui.send(format!("line|{}", crate::ui::USER_LABEL));
             let _ = tx_ui.send(format!("stream|{}", user_text));
             let _ = tx_ui.send("line|".to_string());
 
-            conversation_history.lock().unwrap().push(ChatMessage{role:"user".to_string(), content:user_text.clone()});
+            conversation_history.lock().unwrap().push(ChatMessage {
+              role: "user".to_string(),
+              content: user_text.clone(),
+            });
 
             // Store user message for next agent to respond to
             pending_user_msg = Some(user_text.clone());
             debate_interrupted = false;
-            state.playback.playback_active.store(false, Ordering::Relaxed);
+            state
+              .playback
+              .playback_active
+              .store(false, Ordering::Relaxed);
           }
           continue;
         }
-        
+
         // If interrupted but no user input yet, skip AI turn
         if debate_interrupted && pending_user_msg.is_none() {
           std::thread::sleep(std::time::Duration::from_millis(50));
           continue;
         }
-        
+
         // No user input - run debate turn
         let turn = state.debate_turn.load(Ordering::SeqCst) as usize;
         let agent_count = debate_agents.len();
-        
+
         // Determine current agent and message
         let (current_agent, user_msg) = if let Some(msg) = pending_user_msg.take() {
           // User interrupted - current agent responds to user
@@ -151,7 +165,8 @@ pub fn conversation_thread(
           } else {
             // Get last assistant message as the prompt for next agent
             let hist = conversation_history.lock().unwrap();
-            hist.iter()
+            hist
+              .iter()
               .rev()
               .find(|m| m.role == "assistant")
               .map(|m| m.content.clone())
@@ -159,7 +174,7 @@ pub fn conversation_thread(
           };
           (current_agent, user_msg)
         };
-        
+
         if !user_msg.is_empty() {
           let system_prompt = current_agent.system_prompt.replace("\\n", "\n");
           let mut messages = Vec::new();
@@ -171,7 +186,7 @@ pub fn conversation_thread(
             role: "user".to_string(),
             content: user_msg.clone(),
           });
-          
+
           let my_interrupt = interrupt_counter.load(Ordering::SeqCst);
           let reply = rt
             .block_on(debate_get_response(messages, current_agent))
@@ -179,27 +194,27 @@ pub fn conversation_thread(
               crate::log::log("error", &format!("Error getting debate response: {}", e));
               String::new()
             });
-          
+
           // Check if we were interrupted during LLM response
           if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
             crate::log::log("debug", "LLM response interrupted, discarding");
             continue;
           }
-          
+
           if !reply.is_empty() {
             // Add to conversation history
             conversation_history.lock().unwrap().push(ChatMessage {
               role: "assistant".to_string(),
               content: reply.clone(),
             });
-            
+
             // Display in UI
             let _ = tx_ui.send("line| ".to_string());
             let label = format!("\x1b[48;5;22;37m{}:\x1b[0m", current_agent.name);
             let _ = tx_ui.send(format!("line|{}", label));
             let _ = tx_ui.send(format!("stream|{}", reply.trim()));
             let _ = tx_ui.send("line|".to_string());
-            
+
             // Temporarily switch to current agent's voice/tts settings
             let original_voice = {
               let v = state.voice.lock().unwrap();
@@ -217,7 +232,7 @@ pub fn conversation_thread(
               let mut v = state.tts.lock().unwrap();
               *v = current_agent.tts.clone();
             }
-            
+
             // Send to TTS with current agent's voice and wait for each phrase
             let phrases = split_into_phrases(&reply);
             for phrase in phrases {
@@ -231,7 +246,7 @@ pub fn conversation_thread(
               // Wait for this phrase to be synthesized before sending next one
               let _ = tts_done_rx.recv();
             }
-            
+
             // Restore original voice/tts settings
             {
               let mut v = state.voice.lock().unwrap();
@@ -241,13 +256,13 @@ pub fn conversation_thread(
               let mut v = state.tts.lock().unwrap();
               *v = original_tts;
             }
-            
+
             // Check again for interruption before waiting for playback
             if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
               crate::log::log("debug", "Playback interrupted");
               continue;
             }
-            
+
             // Wait for playback to finish before next AI request
             let playback_active = state.playback.playback_active.clone();
             while playback_active.load(Ordering::SeqCst) {
@@ -258,17 +273,17 @@ pub fn conversation_thread(
               std::thread::sleep(std::time::Duration::from_millis(10));
             }
           }
-          
+
           // Increment turn only if not interrupted
           if interrupt_counter.load(Ordering::SeqCst) == my_interrupt {
             state.debate_turn.fetch_add(1, Ordering::SeqCst);
           }
         }
-        
+
         continue;
       }
     }
-    
+
     select! {
       recv(stop_all_rx) -> _ => break,
       recv(rx_utt) -> msg => {
@@ -333,7 +348,7 @@ pub fn conversation_thread(
         let _ = tx_ui.send("line|".to_string());
 
         conversation_history.lock().unwrap().push(ChatMessage{role:"user".to_string(), content:user_text.clone()});
-        
+
         // Check if debate mode is enabled
         let state = GLOBAL_STATE.get().expect("AppState not initialized");
         if state.debate_enabled.load(Ordering::SeqCst) {
@@ -349,7 +364,7 @@ pub fn conversation_thread(
           state.playback.playback_active.store(false, Ordering::Relaxed);
           continue;
         }
-        
+
         ui.thinking.store(true, Ordering::Relaxed);
 
         // Snapshot interruption counter for this assistant turn.

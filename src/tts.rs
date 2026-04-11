@@ -96,7 +96,7 @@ pub fn tts_thread(
         };
         let state = GLOBAL_STATE.get().expect("AppState not initialized");
         // crate::log::log("info", &format!("TTS received phrase (len={}), expected_interrupt={}", phrase.len(), expected_interrupt));
-        
+
         let tts_val = state.tts.lock().unwrap().clone();
         let language = state.language.lock().unwrap().clone();
         let outcome = crate::tts::speak(
@@ -148,7 +148,7 @@ pub fn tts_thread(
       }
     }
   }
-  
+
   Ok(())
 }
 
@@ -420,11 +420,11 @@ pub fn speak_via_kokoro_stream(
     Ok(_) => {
       // crate::log::log("info", "TTS synthesis completed, audio chunks sent to playback");
       Ok(SpeakOutcome::Completed)
-    },
+    }
     Err(e) => {
       // crate::log::log("info", &format!("TTS synthesis interrupted or failed: {:?}", e));
       Ok(SpeakOutcome::Interrupted)
-    },
+    }
   }
 }
 
