@@ -70,6 +70,11 @@ pub fn conversation_thread(
     if state.debate_enabled.load(Ordering::SeqCst) {
       let debate_agents = state.debate_agents.lock().unwrap().clone();
       if debate_agents.len() >= 2 {
+        // Check for stop signal (Ctrl+C)
+        if stop_all_rx.try_recv().is_ok() {
+          break;
+        }
+        
         // Check for interruption
         let current_interrupt = interrupt_counter.load(Ordering::SeqCst);
         if current_interrupt != last_interrupt {
