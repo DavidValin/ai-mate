@@ -4,7 +4,7 @@ use cpal::traits::DeviceTrait;
 use crossbeam_channel::{bounded, unbounded};
 use crossterm::terminal::{self};
 use std::process;
-use std::sync::{Arc, Mutex, OnceLock, atomic::Ordering};
+use std::sync::{Arc, OnceLock, atomic::Ordering};
 use std::thread::{self, Builder as ThreadBuilder};
 use std::time::Duration;
 use std::time::Instant;
@@ -13,7 +13,6 @@ mod assets;
 mod audio;
 mod config;
 mod conversation;
-mod debate;
 mod keyboard;
 mod llm;
 mod log;
@@ -53,9 +52,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // channel for ui messages
   let (tx_ui, rx_ui) = bounded::<String>(1);
   log::set_tx_ui_sender(tx_ui.clone());
-  // Channels for debate user input
-  let (debate_user_tx, debate_user_rx) = unbounded::<crate::conversation::ChatMessage>();
-  let pending_user = Arc::new(Mutex::new(None::<crate::conversation::ChatMessage>));
 
   if !util::terminal_supported() {
     log::log(
@@ -122,14 +118,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ui = state.ui.clone();
   let status_line = state.status_line.clone();
 
-  // interrupt counter
-  let interrupt_counter = state.interrupt_counter.clone();
-
   // Start UI thread
   let ui_handle = ui::spawn_ui_thread(ui.clone(), status_line.clone(), rx_ui);
 
-  // If debate mode requested, spawn debate thread
-  let mut debate_started = false;
+  // interrupt counter
+  let interrupt_counter = state.interrupt_counter.clone();
+
+  // If debate mode requested via CLI, enable it
   if let Some(debate_args) = args.debate {
     if debate_args.len() < 3 {
       eprintln!("❌ --debate requires at least two agent names and a subject");
@@ -156,43 +151,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         process::exit(1);
       }
     };
-    let tx_tts_clone = tx_tts.clone();
-    let interrupt_clone = interrupt_counter.clone();
-
-    let debate_agents = vec![agent1, agent2];
-    let tx_ui_clone = tx_ui.clone();
-    let pending_user_for_debate = pending_user.clone();
-    let _debate_handle = thread::spawn(move || {
-      debate::run_debate(
-        subject,
-        debate_agents,
-        tx_tts_clone,
-        tx_ui_clone,
-        interrupt_clone,
-        pending_user_for_debate,
-        tts_done_rx.clone(),
-      );
-    });
-    debate_started = true;
-    crate::state::DEBATE_MODE.store(true, Ordering::SeqCst);
+    
+    // Initialize debate mode in state
+    state.debate_enabled.store(true, Ordering::SeqCst);
+    *state.debate_subject.lock().unwrap() = subject;
+    *state.debate_agents.lock().unwrap() = vec![agent1, agent2];
+    state.debate_turn.store(0, Ordering::SeqCst);
   }
-
-  let settings = match agents.iter().find(|a| a.name == args.agent).cloned() {
-    Some(a) => a,
-    None => {
-      print!(
-        "❌ Agent '{}' not found. Available agents: {}",
-        args.agent,
-        agents
-          .iter()
-          .map(|a| a.name.as_str())
-          .collect::<Vec<&str>>()
-          .join(", ")
-      );
-      thread::sleep(Duration::from_millis(300));
-      process::exit(1);
-    }
-  };
 
   // Clones for threads
   let tx_ui_for_keyboard = tx_ui.clone();
@@ -404,51 +369,24 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ui_for_conv = ui.clone();
   let conversation_history_for_conv = conversation_history.clone();
   let tx_tts_for_conv = tx_tts.clone();
-  // Forward user messages and trigger interrupt
-  let pending_user_clone = pending_user.clone();
-  let interrupt_counter_clone = interrupt_counter.clone();
-  thread::spawn(move || {
-    while let Ok(msg) = debate_user_rx.recv() {
-      interrupt_counter_clone.fetch_add(1, Ordering::SeqCst);
-      let mut lock = pending_user_clone.lock().unwrap();
-      *lock = Some(msg);
-    }
+  let tx_ui_for_conv = tx_ui.clone();
+  let tts_done_rx_for_conv = tts_done_rx.clone();
+  
+  let conv_handle = thread::spawn(move || {
+    conversation::conversation_thread(
+      rx_utt_for_conv,
+      stop_all_rx_for_conv.clone(),
+      stop_all_tx_for_conv.clone(),
+      interrupt_counter_for_conv.clone(),
+      whisper_path_for_conv.clone(),
+      settings_for_conv.clone(),
+      ui_for_conv.clone(),
+      conversation_history_for_conv.clone(),
+      tx_ui_for_conv.clone(),
+      tx_tts_for_conv.clone(),
+      tts_done_rx_for_conv.clone(),
+    )
   });
-  let conv_handle = if !debate_started {
-    thread::spawn(move || {
-      conversation::conversation_thread(
-        rx_utt_for_conv,
-        stop_all_rx_for_conv.clone(),
-        stop_all_tx_for_conv.clone(),
-        interrupt_counter_for_conv.clone(),
-        whisper_path_for_conv.clone(),
-        settings_for_conv.clone(),
-        ui_for_conv.clone(),
-        conversation_history_for_conv.clone(),
-        tx_ui.clone(),
-        tx_tts_for_conv.clone(),
-        debate_user_tx.clone(),
-      )
-    })
-  } else {
-    // In debate mode, start a lightweight STT handling thread
-    std::thread::spawn(move || {
-      debate::debate_conversation_thread(
-        rx_utt_for_conv,
-        stop_all_rx_for_conv.clone(),
-        stop_all_tx_for_conv.clone(),
-        interrupt_counter_for_conv.clone(),
-        whisper_path_for_conv.clone(),
-        settings_for_conv.clone(),
-        ui_for_conv.clone(),
-        conversation_history_for_conv.clone(),
-        tx_ui.clone(),
-        tx_tts_for_conv.clone(),
-        debate_user_tx.clone(),
-      );
-      Ok(())
-    })
-  };
 
   // ---------------------------------------------------
   // Thread: keyboard

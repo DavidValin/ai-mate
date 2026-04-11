@@ -27,9 +27,6 @@ pub struct PlaybackState {
 
 pub static GLOBAL_STATE: OnceLock<Arc<AppState>> = OnceLock::new();
 
-/// Flag indicating if the application is running in debate mode.
-pub static DEBATE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 #[derive(Debug)]
 pub struct AppState {
   pub conversation_paused: Arc<AtomicBool>,
@@ -51,6 +48,10 @@ pub struct AppState {
   pub recording_paused: Arc<AtomicBool>,
   pub processing_response: Arc<AtomicBool>,
   pub ptt: Arc<AtomicBool>,
+  pub debate_enabled: Arc<AtomicBool>,
+  pub debate_subject: Arc<Mutex<String>>,
+  pub debate_agents: Arc<Mutex<Vec<crate::config::AgentSettings>>>,
+  pub debate_turn: Arc<AtomicU64>,
 }
 
 impl AppState {
@@ -88,6 +89,10 @@ impl AppState {
       recording_paused: Arc::new(AtomicBool::new(false)),
       processing_response: Arc::new(AtomicBool::new(false)),
       ptt: Arc::new(AtomicBool::new(false)),
+      debate_enabled: Arc::new(AtomicBool::new(false)),
+      debate_subject: Arc::new(Mutex::new(String::new())),
+      debate_agents: Arc::new(Mutex::new(Vec::new())),
+      debate_turn: Arc::new(AtomicU64::new(0)),
     }
   }
 

@@ -2,7 +2,7 @@
 //  UI
 // ------------------------------------------------------------------
 
-use crate::state::{GLOBAL_STATE, get_speed, get_voice};
+use crate::state::{get_speed, get_voice, GLOBAL_STATE};
 use crossbeam_channel::Receiver;
 use crossterm::{
   cursor::{Hide, MoveTo},
@@ -12,8 +12,8 @@ use crossterm::{
 };
 use std::io::{self, Write};
 use std::sync::{
-  Arc, Mutex,
   atomic::{AtomicBool, Ordering},
+  Arc, Mutex,
 };
 use std::thread;
 use std::time::Duration;
@@ -367,7 +367,21 @@ fn render_bottom_bar<W: Write>(
   };
 
   let speed_str = format!("[{:.1}x]", get_speed());
-  let voice_str = format!("({})", get_voice());
+
+  // Check if debate mode is enabled
+  let debate_enabled = state.debate_enabled.load(Ordering::Relaxed);
+  let voice_or_debate_str = if debate_enabled {
+    let debate_agents = state.debate_agents.lock().unwrap();
+    if debate_agents.len() >= 2 {
+      let agent1_name = debate_agents[0].name.chars().take(8).collect::<String>();
+      let agent2_name = debate_agents[1].name.chars().take(8).collect::<String>();
+      format!("\x1b[41m\x1b[37m DEBATE \x1b[0m: {} -- {}", agent1_name, agent2_name)
+    } else {
+      format!("({})", get_voice())
+    }
+  } else {
+    format!("({})", get_voice())
+  };
 
   let recording_paused_str = if recording_paused {
     "\x1b[43m\x1b[30m  paused  \x1b[0m"
@@ -405,10 +419,14 @@ fn render_bottom_bar<W: Write>(
     ""
   };
 
-  let combined_status = format!(
-    "{} {} {} ({}) ",
-    voice_str, ptt, internal_status, agent_name
-  );
+  let combined_status = if debate_enabled {
+    format!("{} {} {} ", voice_or_debate_str, ptt, internal_status)
+  } else {
+    format!(
+      "{} {} {} ({}) ",
+      voice_or_debate_str, ptt, internal_status, agent_name
+    )
+  };
 
   let cols = crossterm::terminal::size().unwrap_or((80, 24)).0 as usize;
 

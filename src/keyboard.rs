@@ -2,15 +2,15 @@
 //  Keyboard handling
 // ------------------------------------------------------------------
 
-use crate::state::{GLOBAL_STATE, decrease_voice_speed, increase_voice_speed};
+use crate::state::{decrease_voice_speed, increase_voice_speed, GLOBAL_STATE};
 use crossbeam_channel::{Receiver, Sender};
 use crossterm::{
   event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
   terminal,
 };
 use std::sync::{
-  Arc,
   atomic::{AtomicBool, AtomicU64, Ordering},
+  Arc,
 };
 use std::time::{Duration, Instant};
 
@@ -47,6 +47,49 @@ pub fn keyboard_thread(
             let _ = stop_all_tx.try_send(());
             let _ = tx_ui.try_send("stop_ui|".to_string());
             break;
+          }
+          // Ctrl+D toggles debate mode
+          if let KeyCode::Char('d') | KeyCode::Char('D') = k.code {
+            let debate_enabled = state.debate_enabled.load(Ordering::SeqCst);
+            state
+              .debate_enabled
+              .store(!debate_enabled, Ordering::SeqCst);
+
+            if !debate_enabled {
+              // Entering debate mode
+              let agents = state.agents.as_ref();
+              if agents.len() >= 2 {
+                // Set up debate with first two agents
+                let debate_agents = vec![agents[0].clone(), agents[1].clone()];
+                *state.debate_agents.lock().unwrap() = debate_agents;
+                state.debate_turn.store(0, Ordering::SeqCst);
+                *state.debate_subject.lock().unwrap() =
+                  "Let's debate. What should we discuss?".to_string();
+                let _ = tx_ui.send(format!(
+                  "line|\n\x1b[33m🎭 Debate mode ENABLED between '{}' and '{}'\x1b[0m",
+                  agents[0].name, agents[1].name
+                ));
+                let _ = tx_ui.send("line|\n\x1b[33m💬 Speak to set the debate topic or change the subject at any time\x1b[0m\n".to_string());
+              } else {
+                // Not enough agents, revert
+                state.debate_enabled.store(false, Ordering::SeqCst);
+                let _ = tx_ui.send(
+                  "line|\n\x1b[31m❌ Need at least 2 agents for debate mode\x1b[0m\n".to_string(),
+                );
+              }
+            } else {
+              // Exiting debate mode
+              state.debate_agents.lock().unwrap().clear();
+              state.debate_turn.store(0, Ordering::SeqCst);
+              *state.debate_subject.lock().unwrap() = String::new();
+              // Interrupt any ongoing TTS playback
+              interrupt_counter.fetch_add(1, Ordering::SeqCst);
+              state
+                .playback
+                .playback_active
+                .store(false, Ordering::Relaxed);
+              let _ = tx_ui.send("line|\n\x1b[33m🎭 Debate mode DISABLED\x1b[0m\n".to_string());
+            }
           }
         }
 
