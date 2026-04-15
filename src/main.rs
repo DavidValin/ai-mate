@@ -209,7 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let interrupt_counter = app_state.interrupt_counter.clone();
 
     // Start TTS thread
-    let tts_handle = thread::spawn({
+    let _tts_handle = thread::spawn({
       let out_sample_rate = out_sample_rate.clone();
       let tx_play = tx_play.clone();
       let stop_all_rx = stop_all_rx.clone();
@@ -271,11 +271,42 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     // Split content into phrases (by newlines or periods)
-    let phrases: Vec<String> = content
-      .split(|c| c == '.' || c == '\n')
-      .map(|s| s.trim().to_string())
-      .filter(|s| !s.is_empty())
-      .collect();
+    let phrases: Vec<String> = {
+      let mut phrases = Vec::new();
+      let mut current = String::new();
+      for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+          if !current.is_empty() {
+            phrases.push(current.trim().to_string());
+            current.clear();
+          }
+          continue;
+        }
+        // Split line on periods to handle sentence ends
+        let mut parts = trimmed.split('.');
+        // Handle first part
+        let first = parts.next().unwrap();
+        if !current.is_empty() {
+          current.push(' ');
+        }
+        current.push_str(first);
+        // Any subsequent parts mean we hit a period
+        for part in parts {
+          // End current phrase at period
+          phrases.push(current.trim().to_string());
+          current.clear();
+          // Start new phrase with remaining part
+          if !part.is_empty() {
+            current.push_str(part);
+          }
+        }
+      }
+      if !current.is_empty() {
+        phrases.push(current.trim().to_string());
+      }
+      phrases
+    };
 
     println!("📖 Reading {} phrases from '{}'", phrases.len(), filename);
 
@@ -343,7 +374,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       // Show current phrase with highlight (yellow background, black text)
       if let Some(curr) = current {
         execute!(out, cursor::MoveToColumn(0)).unwrap();
-        println!("\x1b[43;30m{}\x1b[0m", curr);
+        println!("\x1b[33m{}\x1b[0m", curr);
       }
       
       out.flush().unwrap();
