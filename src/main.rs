@@ -3,12 +3,12 @@ use clap::Parser;
 use cpal::traits::DeviceTrait;
 use crossbeam_channel::{bounded, unbounded};
 use crossterm::terminal::{self};
+use std::io::{self, Read};
 use std::process;
 use std::sync::{Arc, OnceLock, atomic::Ordering};
 use std::thread::{self, Builder as ThreadBuilder};
 use std::time::Duration;
 use std::time::Instant;
-use std::io::{self, Read};
 
 mod assets;
 mod audio;
@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       .ok_or("Unable to determine home directory")?
       .join(".ai-mate")
       .join("settings");
-    
+
     let agents = match config::load_settings(&settings_path, &args) {
       Ok(v) => v,
       Err(e) => {
@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         process::exit(1);
       }
     };
-    
+
     // Select agent: use --agent if specified, otherwise pick first
     let settings = match &args.agent {
       Some(agent_name) => match agents.iter().find(|a| a.name == *agent_name).cloned() {
@@ -119,10 +119,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let content = if filename == "-" {
       // Read from stdin
       let mut stdin_bytes = Vec::new();
-      io::stdin().read_to_end(&mut stdin_bytes).unwrap_or_else(|e| {
-        eprintln!("❌ Failed to read stdin: {}", e);
-        process::exit(1);
-      });
+      io::stdin()
+        .read_to_end(&mut stdin_bytes)
+        .unwrap_or_else(|e| {
+          eprintln!("❌ Failed to read stdin: {}", e);
+          process::exit(1);
+        });
       // Try UTF-8 first
       match std::str::from_utf8(&stdin_bytes) {
         Ok(s) => s.to_string(),
@@ -149,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(bytes) => {
               // Try to detect encoding - common encodings for Spanish text
               use encoding_rs::*;
-              
+
               // Try UTF-8 first
               if let Ok(s) = std::str::from_utf8(&bytes) {
                 s.to_string()
@@ -193,7 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       eprintln!("❌ {}", msg);
       process::exit(1)
     });
-    
+
     let out_cfg_supported = out_dev.default_output_config()?;
     let out_cfg: cpal::StreamConfig = out_cfg_supported.clone().into();
     let out_sample_rate = out_cfg.sample_rate.0;
@@ -353,32 +355,39 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     // Clear screen and prepare for phrase display
-    use crossterm::{execute, cursor, terminal as term, style::Print};
-    use std::io::{stdout, Write};
+    use crossterm::{cursor, execute, style::Print, terminal as term};
+    use std::io::{Write, stdout};
     let mut out = stdout();
-    execute!(out, term::Clear(term::ClearType::All), cursor::MoveTo(0, 0), cursor::Hide).unwrap();
-    
+    execute!(
+      out,
+      term::Clear(term::ClearType::All),
+      cursor::MoveTo(0, 0),
+      cursor::Hide
+    )
+    .unwrap();
+
     // Track which phrases have been completed
     let displayed_phrases = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
 
     // Helper function to update display
-    let update_display = |out: &mut std::io::Stdout, completed: &[String], current: Option<&str>| {
-      execute!(out, term::Clear(term::ClearType::All), cursor::MoveTo(0, 0)).unwrap();
-      
-      // Show all completed phrases (unhighlighted)
-      for phrase in completed {
-        execute!(out, cursor::MoveToColumn(0)).unwrap();
-        println!("{}", phrase);
-      }
-      
-      // Show current phrase with highlight (yellow background, black text)
-      if let Some(curr) = current {
-        execute!(out, cursor::MoveToColumn(0)).unwrap();
-        println!("\x1b[33m{}\x1b[0m", curr);
-      }
-      
-      out.flush().unwrap();
-    };
+    let update_display =
+      |out: &mut std::io::Stdout, completed: &[String], current: Option<&str>| {
+        execute!(out, term::Clear(term::ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+
+        // Show all completed phrases (unhighlighted)
+        for phrase in completed {
+          execute!(out, cursor::MoveToColumn(0)).unwrap();
+          println!("{}", phrase);
+        }
+
+        // Show current phrase with highlight (yellow background, black text)
+        if let Some(curr) = current {
+          execute!(out, cursor::MoveToColumn(0)).unwrap();
+          println!("\x1b[33m{}\x1b[0m", curr);
+        }
+
+        out.flush().unwrap();
+      };
 
     let mut last_idx = 0;
 
@@ -389,7 +398,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       }
 
       let idx = current_phrase.load(Ordering::SeqCst);
-      
+
       if idx >= phrases.len() {
         break;
       }
@@ -405,7 +414,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         drop(displayed);
       }
-      
+
       // Always update last_idx to current
       last_idx = idx;
 
@@ -429,10 +438,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
           let displayed = displayed_phrases.lock().unwrap();
           update_display(&mut out, &displayed, Some(phrase));
           drop(displayed);
-          
+
           let expected_interrupt = interrupt_counter.load(Ordering::SeqCst);
-          tx_tts.send((cleaned, expected_interrupt, settings.voice.clone())).unwrap();
-          
+          tx_tts
+            .send((cleaned, expected_interrupt, settings.voice.clone()))
+            .unwrap();
+
           // Wait for TTS synthesis to complete or navigation
           let mut navigated_away = false;
           loop {
@@ -452,15 +463,15 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
               }
             }
           }
-          
+
           // Check if we navigated away before continuing
           if navigated_away {
             continue; // Skip to next iteration
           }
-          
+
           // Wait a bit to ensure playback has started
           thread::sleep(Duration::from_millis(100));
-          
+
           // NOW wait for playback to finish - PHRASE STAYS HIGHLIGHTED DURING PLAYBACK
           while playback_active.load(Ordering::Relaxed) {
             // Check if user navigated away
@@ -473,15 +484,15 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
             thread::sleep(Duration::from_millis(50));
           }
-          
+
           // Check if we navigated away before marking as completed
           if navigated_away {
             continue; // Skip to next iteration
           }
-          
+
           // Add extra delay to ensure audio has fully played
           thread::sleep(Duration::from_millis(100));
-          
+
           // NOW that playback is done, move phrase from current to completed (unhighlighted)
           let mut displayed = displayed_phrases.lock().unwrap();
           if !displayed.contains(phrase) {
@@ -490,7 +501,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
           // Update display immediately to show it as completed (no highlight)
           update_display(&mut out, &displayed, None);
           drop(displayed);
-          
+
           // Only auto-advance if we didn't navigate
           // Auto-advance only if we weren't interrupted or navigated away
           let start_idx = idx;
