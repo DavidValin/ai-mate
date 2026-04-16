@@ -9,6 +9,7 @@ use std::sync::{Arc, OnceLock, atomic::Ordering};
 use std::thread::{self, Builder as ThreadBuilder};
 use std::time::Duration;
 use std::time::Instant;
+use crate::ui::USER_LABEL;
 
 mod assets;
 mod audio;
@@ -28,7 +29,7 @@ mod util;
 static START_INSTANT: OnceLock<Instant> = OnceLock::new();
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  let args = crate::config::Args::parse();
+  let args: config::Args = crate::config::Args::parse();
   crate::log::set_verbose(args.verbose || false);
   let _ = START_INSTANT.get_or_init(Instant::now);
 
@@ -115,67 +116,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       }
     };
 
-    // Read the file - try UTF-8 first, then try Latin-1 encoding
-    let content = if filename == "-" {
-      // Read from stdin
-      let mut stdin_bytes = Vec::new();
-      io::stdin()
-        .read_to_end(&mut stdin_bytes)
-        .unwrap_or_else(|e| {
-          eprintln!("❌ Failed to read stdin: {}", e);
-          process::exit(1);
-        });
-      // Try UTF-8 first
-      match std::str::from_utf8(&stdin_bytes) {
-        Ok(s) => s.to_string(),
-        Err(_) => {
-          // Fallback encoding detection similar to file handling
-          use encoding_rs::*;
-          let (decoded, _encoding, had_errors) = WINDOWS_1252.decode(&stdin_bytes);
-          if !had_errors {
-            eprintln!("⚠️  Stdin encoded as Windows-1252/Latin-1, converting to UTF-8");
-            decoded.to_string()
-          } else {
-            eprintln!("⚠️  Stdin encoding unknown, using lossy UTF-8 conversion");
-            String::from_utf8_lossy(&stdin_bytes).to_string()
-          }
-        }
-      }
-    } else {
-      // Existing file reading logic
-      match std::fs::read_to_string(filename) {
-        Ok(c) => c,
-        Err(_) => {
-          // If UTF-8 reading fails, try reading as bytes and detect encoding
-          match std::fs::read(filename) {
-            Ok(bytes) => {
-              // Try to detect encoding - common encodings for Spanish text
-              use encoding_rs::*;
-
-              // Try UTF-8 first
-              if let Ok(s) = std::str::from_utf8(&bytes) {
-                s.to_string()
-              } else {
-                // Try Latin-1 (ISO-8859-1) - common for Spanish
-                let (decoded, _encoding, had_errors) = WINDOWS_1252.decode(&bytes);
-                if !had_errors {
-                  eprintln!("⚠️  File encoded as Windows-1252/Latin-1, converting to UTF-8");
-                  decoded.to_string()
-                } else {
-                  // Fall back to lossy UTF-8 conversion
-                  eprintln!("⚠️  File encoding unknown, using lossy UTF-8 conversion");
-                  String::from_utf8_lossy(&bytes).to_string()
-                }
-              }
-            }
-            Err(e) => {
-              eprintln!("❌ Failed to read file '{}': {}", filename, e);
-              process::exit(1);
-            }
-          }
-        }
-      }
-    };
+    // Read the filename or stdin
+    let content = util::read_file(filename);
 
     // Start kokoro engine if needed
     if settings.tts == "kokoro" {
@@ -432,7 +374,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
       if !phrase.is_empty() {
         // Strip special characters before TTS
-        let cleaned = util::strip_special_chars(phrase);
+        let cleaned = crate::util::strip_special_chars(phrase);
         if !cleaned.is_empty() {
           // Show this phrase as current (highlighted) - THIS IS WHEN IT STARTS PLAYING
           let displayed = displayed_phrases.lock().unwrap();
@@ -543,7 +485,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       process::exit(1);
     }
   };
-  let settings = match &args.agent {
+  let mut settings = match &args.agent {
     Some(agent_name) => match agents.iter().find(|a| a.name == *agent_name).cloned() {
       Some(a) => a,
       None => {
@@ -573,7 +515,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   ));
 
   state::GLOBAL_STATE.set(state.clone()).unwrap();
+
+  // If initial prompt provided, process it before starting conversation thread
+  // (initial prompt handling moved after TTS thread starts to avoid deadlock)
   let ui = state.ui.clone();
+  let mut initial_prompt: Option<String> = None;
   let status_line = state.status_line.clone();
 
   // Start UI thread
@@ -582,40 +528,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // interrupt counter
   let interrupt_counter = state.interrupt_counter.clone();
 
-  // If debate mode requested via CLI, enable it
-  if let Some(debate_args) = args.debate {
-    if debate_args.len() < 3 {
-      eprintln!("❌ --debate requires at least two agent names and a subject");
-      process::exit(1);
-    }
-    let agent1_name = &debate_args[0];
-    let agent2_name = &debate_args[1];
-    let subject = debate_args[2..].join(" ");
-    let agent1 = agents.iter().find(|a| a.name == *agent1_name).cloned();
-    let agent2 = agents.iter().find(|a| a.name == *agent2_name).cloned();
-    let (agent1, agent2) = match (agent1, agent2) {
-      (Some(a1), Some(a2)) => (a1, a2),
-      _ => {
-        eprintln!(
-          "❌ Agents '{}' or '{}' not found. Available agents: {}",
-          agent1_name,
-          agent2_name,
-          agents
-            .iter()
-            .map(|a| a.name.as_str())
-            .collect::<Vec<&str>>()
-            .join(", ")
-        );
-        process::exit(1);
-      }
-    };
-
-    // Initialize debate mode in state
-    state.debate_enabled.store(true, Ordering::SeqCst);
-    *state.debate_subject.lock().unwrap() = subject;
-    *state.debate_agents.lock().unwrap() = vec![agent1, agent2];
-    state.debate_turn.store(0, Ordering::SeqCst);
-  }
+  // (Debate logic removed – will be placed after prompt handling)
 
   // Clones for threads
   let tx_ui_for_keyboard = tx_ui.clone();
@@ -707,6 +620,21 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     ),
   );
 
+  // ---------------------------------------------------
+  // Handle --prompt-file <file_name|-> / -i <file_name|->
+  // ---------------------------------------------------
+  if let Some(prompt_file) = args.prompt_file.clone() {
+    let prompt_from_file = util::read_file(&prompt_file);
+    initial_prompt = Some(prompt_from_file.clone());
+  }
+
+  // ---------------------------------------------------
+  // Handle --prompt-text <prompt> / -p <prompt>
+  // ---------------------------------------------------
+  if let Some(prompt_text) = args.prompt.clone() {
+    initial_prompt = Some(prompt_text);
+  }
+
   let recording_paused = state.recording_paused.clone();
   let recording_paused_for_record = recording_paused.clone();
   if state.ptt.load(Ordering::Relaxed) {
@@ -750,7 +678,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // ---------------------------------------------------
   // Thread: Playback
   // ---------------------------------------------------
-
+  
   let rx_play_for_playback = rx_play.clone();
   let playback_active_for_play = playback_active.clone();
   let gate_until_ms_for_play = gate_until_ms.clone();
@@ -831,7 +759,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let tx_ui_for_conv = tx_ui.clone();
   let tts_done_rx_for_conv = tts_done_rx.clone();
 
-  let conv_handle = thread::spawn(move || {
+  let init_prompt_for_conv = initial_prompt.clone();
+let conv_handle = thread::spawn(move || {
     conversation::conversation_thread(
       rx_utt_for_conv,
       stop_all_rx_for_conv.clone(),
@@ -844,6 +773,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       tx_ui_for_conv.clone(),
       tx_tts_for_conv.clone(),
       tts_done_rx_for_conv.clone(),
+      init_prompt_for_conv,
     )
   });
 
@@ -867,21 +797,61 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
   });
 
+  // Enable debate mode if requested
+  if let Some(ref debate_args) = args.debate {
+    if debate_args.len() < 2 {
+      eprintln!("❌ --debate requires at least two agent names");
+      process::exit(1);
+    }
+    let agent1_name = &debate_args[0];
+    let agent2_name = &debate_args[1];
+    let subject = if debate_args.len() >= 3 {
+        debate_args[2..].join(" ")
+    } else if let Some(ref subj) = initial_prompt {
+        subj.clone()
+    } else {
+        eprintln!("❌ --debate requires a subject when no prompt is provided");
+        process::exit(1);
+    };
+    let agent1 = agents.iter().find(|a| a.name == *agent1_name).cloned();
+    let agent2 = agents.iter().find(|a| a.name == *agent2_name).cloned();
+    let (agent1, agent2) = match (agent1, agent2) {
+      (Some(a1), Some(a2)) => (a1, a2),
+      _ => {
+        eprintln!(
+          "❌ Agents '{}' or '{}' not found. Available agents: {}",
+          agent1_name,
+          agent2_name,
+          agents
+              .iter()
+              .map(|a| a.name.as_str())
+              .collect::<Vec<&str>>()
+              .join(", ")
+        );
+        process::exit(1);
+      }
+    };
+    state.debate_enabled.store(true, Ordering::SeqCst);
+    *state.debate_subject.lock().unwrap() = subject;
+    *state.debate_agents.lock().unwrap() = vec![agent1, agent2];
+    state.debate_turn.store(0, Ordering::SeqCst);
+  }
+
   // If running in interactive terminal, block until keyboard thread exits.
   if util::terminal_supported() {
     let _ = key_handle.join();
   }
-  let _ = stop_all_tx.try_send(());
 
-  drop(stop_play_tx);
-  drop(tx_tts);
-
-  // Wait for all threads to finish
+  // Join threads after debate flags set
   let _ = rec_handle.join().unwrap();
   let _ = play_handle.join().unwrap();
   let _ = conv_handle.join().unwrap();
   let _ = ui_handle.join().unwrap();
   let _ = tts_handle.join().unwrap();
+
+
+  drop(stop_play_tx);
+  // drop(tx_tts);
 
   Ok(())
 }

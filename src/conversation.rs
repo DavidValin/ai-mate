@@ -12,6 +12,8 @@ use std::sync::{
   atomic::{AtomicU64, Ordering},
 };
 use tokio::runtime::Builder as TokioBuilder;
+use crate::ui::USER_LABEL;
+
 
 static WHISPER_CTX: OnceLock<whisper_rs::WhisperContext> = OnceLock::new();
 
@@ -49,6 +51,7 @@ pub fn conversation_thread(
   tx_ui: Sender<String>,
   tts_tx: Sender<(String, u64, String)>,
   tts_done_rx: Receiver<()>,
+  initial_prompt: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ctx = init_whisper_context(&model_path);
   crate::log::log("info", &format!("LLM model: {}", settings.model));
@@ -62,11 +65,25 @@ pub fn conversation_thread(
   // Track interruptions for debate mode
   let mut last_interrupt = interrupt_counter.load(Ordering::SeqCst);
   let mut debate_interrupted = false;
-  let mut pending_user_msg: Option<String> = None;
+  let mut pending_user_msg: Option<String> = initial_prompt;
 
   loop {
     // Check if we should run debate turn
     let state = GLOBAL_STATE.get().expect("AppState not initialized");
+    // Show initial prompt only if not in debate mode
+    if !state.debate_enabled.load(Ordering::SeqCst) {
+      if let Some(ref prompt) = pending_user_msg {
+        let _ = tx_ui.send("line|\n".to_string());
+        let _ = tx_ui.send(format!("line|{}", USER_LABEL));
+        let _ = tx_ui.send(format!("line|{}", prompt));
+        let _ = tx_ui.send("line|".to_string());
+        conversation_history.lock().unwrap().push(ChatMessage {
+          role: "user".to_string(),
+          content: prompt.clone(),
+        });
+        pending_user_msg = Some(prompt.clone());
+      }
+    }
     if state.debate_enabled.load(Ordering::SeqCst) {
       let debate_agents = state.debate_agents.lock().unwrap().clone();
       if debate_agents.len() >= 2 {
@@ -154,6 +171,16 @@ pub fn conversation_thread(
         // No user input - run debate turn
         let turn = state.debate_turn.load(Ordering::SeqCst) as usize;
         let agent_count = debate_agents.len();
+        // If first debate turn, display subject as user input before agent reply
+        if turn == 0 {
+          let subject = state.debate_subject.lock().unwrap().clone();
+          if !subject.is_empty() {
+            let _ = tx_ui.send("line|\n".to_string());
+            let _ = tx_ui.send(format!("line|{}", USER_LABEL));
+            let _ = tx_ui.send(format!("line|{}", subject));
+            let _ = tx_ui.send("line|".to_string());
+          }
+        }
 
         // Determine current agent and message
         let (current_agent, user_msg) = if let Some(msg) = pending_user_msg.take() {
@@ -191,7 +218,7 @@ pub fn conversation_thread(
 
           let my_interrupt = interrupt_counter.load(Ordering::SeqCst);
           let reply = rt
-            .block_on(debate_get_response(messages, current_agent))
+            .block_on(get_response(messages, current_agent))
             .unwrap_or_else(|e| {
               crate::log::log("error", &format!("Error getting debate response: {}", e));
               String::new()
@@ -310,6 +337,116 @@ pub fn conversation_thread(
       }
     }
 
+    // Normal conversation mode (no debate)
+    if !state.debate_enabled.load(Ordering::SeqCst) {
+      if let Some(user_msg) = pending_user_msg.take() {
+        // Build messages for LLM
+        let system_prompt = settings.system_prompt.replace("\\n", "\n");
+        let mut messages = Vec::new();
+        messages.push(ChatMessage {
+          role: "system".to_string(),
+          content: system_prompt.clone(),
+        });
+        messages.push(ChatMessage {
+          role: "user".to_string(),
+          content: user_msg.clone(),
+        });
+
+        let my_interrupt = interrupt_counter.load(Ordering::SeqCst);
+        let reply = rt
+          .block_on(get_response(messages, &settings))
+          .unwrap_or_else(|e| {
+            crate::log::log("error", &format!("Error getting response: {}", e));
+            String::new()
+          });
+
+        if !reply.is_empty() {
+          conversation_history.lock().unwrap().push(ChatMessage {
+            role: "assistant".to_string(),
+            content: reply.clone(),
+          });
+
+          // Display in UI
+          let _ = tx_ui.send("line| ".to_string());
+          let label = format!("\x1b[48;5;22;37m{}:\x1b[0m", settings.name);
+          let _ = tx_ui.send(format!("line|{}", label));
+          let _ = tx_ui.send(format!("stream|{}", reply.trim()));
+          let _ = tx_ui.send("line|".to_string());
+
+          // Switch to agent voice
+          let original_voice = {
+            let v = state.voice.lock().unwrap();
+            v.clone()
+          };
+          let original_tts = {
+            let v = state.tts.lock().unwrap();
+            v.clone()
+          };
+          let original_language = {
+            let v = state.language.lock().unwrap();
+            v.clone()
+          };
+          let original_baseurl = {
+            let v = state.baseurl.lock().unwrap();
+            v.clone()
+          };
+          {
+            let mut v = state.voice.lock().unwrap();
+            *v = settings.voice.clone();
+          }
+          {
+            let mut v = state.tts.lock().unwrap();
+            *v = settings.tts.clone();
+          }
+          {
+            let mut v = state.language.lock().unwrap();
+            *v = settings.language.clone();
+          }
+          {
+            let mut v = state.baseurl.lock().unwrap();
+            *v = settings.baseurl.clone();
+          }
+
+          let phrases = split_into_phrases(&reply);
+          for phrase in phrases {
+            if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
+              break;
+            }
+            let cleaned = crate::util::strip_special_chars(&phrase);
+            let _ = tts_tx.send((cleaned, my_interrupt, settings.voice.clone()));
+            let _ = tts_done_rx.recv();
+          }
+
+          // Restore original settings
+          {
+            let mut v = state.voice.lock().unwrap();
+            *v = original_voice;
+          }
+          {
+            let mut v = state.tts.lock().unwrap();
+            *v = original_tts;
+          }
+          {
+            let mut v = state.language.lock().unwrap();
+            *v = original_language;
+          }
+          {
+            let mut v = state.baseurl.lock().unwrap();
+            *v = original_baseurl;
+          }
+
+          // Wait for playback
+          let playback_active = state.playback.playback_active.clone();
+          while playback_active.load(Ordering::SeqCst) {
+            if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
+              break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+          }
+        }
+      }
+    }
+
     select! {
       recv(stop_all_rx) -> _ => break,
       recv(rx_utt) -> msg => {
@@ -372,7 +509,7 @@ pub fn conversation_thread(
         crate::ui::STOP_STREAM.store(false, Ordering::Relaxed);
         let _ = tx_ui.send("line|\n".to_string());
         let _ = tx_ui.send(format!("line|{}", crate::ui::USER_LABEL));
-        let _ = tx_ui.send(format!("stream|{}", user_text));
+        let _ = tx_ui.send(format!("line|{}", user_text));
         let _ = tx_ui.send("line|".to_string());
 
         conversation_history.lock().unwrap().push(ChatMessage{role:"user".to_string(), content:user_text.clone()});
@@ -530,7 +667,7 @@ pub fn conversation_thread(
 // ------------------------------------------------------------------
 
 /// Get response from LLM for debate mode (synchronous, non-streaming)
-async fn debate_get_response(
+async fn get_response(
   messages: Vec<ChatMessage>,
   agent: &crate::config::AgentSettings,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {

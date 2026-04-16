@@ -4,8 +4,8 @@
 
 use std::cell::Cell;
 use std::io::IsTerminal;
-use std::sync::OnceLock;
 use std::sync::atomic::AtomicU64;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 /// Global timestamp of last speech end (in ms since program start).
@@ -15,7 +15,61 @@ thread_local! {
   static IN_CODE_BLOCK: Cell<bool> = Cell::new(false);
 }
 
-// API
+// Read file or stdin with encoding fallback
+pub fn read_file(path: &str) -> String {
+  if path == "-" {
+    // Read from stdin
+    let mut stdin_bytes = Vec::new();
+    io::stdin()
+      .read_to_end(&mut stdin_bytes)
+      .unwrap_or_else(|e| {
+        eprintln!("❌ Failed to read stdin: {}", e);
+        process::exit(1);
+      });
+    match std::str::from_utf8(&stdin_bytes) {
+      Ok(s) => s.to_string(),
+      Err(_) => {
+        let (decoded, _encoding, had_errors) = WINDOWS_1252.decode(&stdin_bytes);
+        if !had_errors {
+          // eprintln!("⚠️  Stdin encoded as Windows-1252/Latin-1, converting to UTF-8");
+          decoded.to_string()
+        } else {
+          // eprintln!("⚠️  Stdin encoding unknown, using lossy UTF-8 conversion");
+          String::from_utf8_lossy(&stdin_bytes).to_string()
+        }
+      }
+    }
+  } else {
+    match fs::read_to_string(path) {
+      Ok(c) => c,
+      Err(_) => match fs::read(path) {
+        Ok(bytes) => {
+          if let Ok(s) = std::str::from_utf8(&bytes) {
+            s.to_string()
+          } else {
+            let (decoded, _encoding, had_errors) = WINDOWS_1252.decode(&bytes);
+            if !had_errors {
+              // eprintln!("⚠️  File encoded as Windows-1252/Latin-1, converting to UTF-8");
+              decoded.to_string()
+            } else {
+              // eprintln!("⚠️  File encoding unknown, using lossy UTF-8 conversion");
+              String::from_utf8_lossy(&bytes).to_string()
+            }
+          }
+        }
+        Err(e) => {
+          eprintln!("❌ Failed to read file '{}' with error: {}", path, e);
+          process::exit(1);
+        }
+      },
+    }
+  }
+}
+
+use encoding_rs::*;
+use std::fs;
+use std::io::{self, Read};
+use std::process;
 // ------------------------------------------------------------------
 
 use directories::UserDirs;
