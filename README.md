@@ -220,6 +220,7 @@ echo "Is $(date) a national holiday day in Spain?" | ai-mate -i -
 
 ####  File to speech
 Read a text file or stdin text phrase by phrase. Ensure the agent you choose has correct language and voice for your text.
+In this mode, only the next agent settings are used: "tts", "voice" and "language".
 
 from a txt file:
 ```
@@ -233,10 +234,9 @@ ai-mate -r - --agent "main agent"
 
 In this mode you can:
 
-* Move to previous phrase by pressing `U`
-* Move to next phrase by pressing `D`
-* Stop playback by pressing `S`
-* Resume playback by pressing `P`
+* Move to previous phrase by pressing `ARROW_UP`
+* Move to next phrase by pressing `ARROW_DOWN`
+* Stop / Resume playback by pressing `SPACE`
 
 ####  Other info
 

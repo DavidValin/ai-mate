@@ -1,10 +1,8 @@
-use crate::ui::USER_LABEL;
 use crate::util::get_user_home_path;
 use clap::Parser;
 use cpal::traits::DeviceTrait;
 use crossbeam_channel::{bounded, unbounded};
 use crossterm::terminal::{self};
-use std::io::{self, Read};
 use std::process;
 use std::sync::{Arc, OnceLock, atomic::Ordering};
 use std::thread::{self, Builder as ThreadBuilder};
@@ -297,7 +295,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     // Clear screen and prepare for phrase display
-    use crossterm::{cursor, execute, style::Print, terminal as term};
+    use crossterm::{cursor, execute, terminal as term};
     use std::io::{Write, stdout};
     let mut out = stdout();
     execute!(
@@ -485,7 +483,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       process::exit(1);
     }
   };
-  let mut settings = match &args.agent {
+  let settings = match &args.agent {
     Some(agent_name) => match agents.iter().find(|a| a.name == *agent_name).cloned() {
       Some(a) => a,
       None => {
@@ -526,7 +524,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ui_handle = ui::spawn_ui_thread(ui.clone(), status_line.clone(), rx_ui);
 
   // interrupt counter
-  let interrupt_counter = state.interrupt_counter.clone();
+  let _interrupt_counter = state.interrupt_counter.clone();
 
   // (Debate logic removed – will be placed after prompt handling)
 

@@ -4,9 +4,7 @@
 
 use crate::START_INSTANT;
 use crate::state::GLOBAL_STATE;
-use crate::ui::USER_LABEL;
 use crossbeam_channel::{Receiver, Sender, select};
-use std::cell::Cell;
 use std::sync::OnceLock;
 use std::sync::{
   Arc,
@@ -72,14 +70,8 @@ pub fn conversation_thread(
     // Show initial prompt only if not in debate mode
     if !state.debate_enabled.load(Ordering::SeqCst) {
       if let Some(ref prompt) = pending_user_msg {
-        let _ = tx_ui.send("line|\n".to_string());
-        let _ = tx_ui.send(format!("line|{}", USER_LABEL));
-        let _ = tx_ui.send(format!("line|{}", prompt));
-        let _ = tx_ui.send("line|".to_string());
-        conversation_history.lock().unwrap().push(ChatMessage {
-          role: "user".to_string(),
-          content: prompt.clone(),
-        });
+        send_user_message_ui(&tx_ui, prompt, false);
+        push_user_message(&conversation_history, prompt);
         pending_user_msg = Some(prompt.clone());
       }
     }
@@ -114,20 +106,8 @@ pub fn conversation_thread(
           state.conversation_paused.store(false, Ordering::Relaxed);
           state.processing_response.store(true, Ordering::Relaxed);
 
-          let pcm_f32: Vec<f32> = utt.data.clone();
-          let mono_f32 = if utt.channels == 1 {
-            pcm_f32.clone()
-          } else {
-            let ch = utt.channels as usize;
-            let frames = pcm_f32.len() / ch;
-            let mut mono = Vec::with_capacity(frames);
-            for f in 0..frames {
-              let start = f * ch;
-              let sum: f32 = pcm_f32[start..start + ch].iter().sum();
-              mono.push(sum / ch as f32);
-            }
-            mono
-          };
+          let _pcm_f32: Vec<f32> = utt.data.clone();
+          let mono_f32 = crate::audio::convert_to_mono(&utt);
 
           let user_text = crate::stt::whisper_transcribe_with_ctx(
             &ctx,
@@ -140,15 +120,8 @@ pub fn conversation_thread(
           if !user_text.is_empty() {
             // Clear STOP_STREAM flag to ensure user text displays fully
             crate::ui::STOP_STREAM.store(false, Ordering::Relaxed);
-            let _ = tx_ui.send("line|\n".to_string());
-            let _ = tx_ui.send(format!("line|{}", crate::ui::USER_LABEL));
-            let _ = tx_ui.send(format!("stream|{}", user_text));
-            let _ = tx_ui.send("line|".to_string());
-
-            conversation_history.lock().unwrap().push(ChatMessage {
-              role: "user".to_string(),
-              content: user_text.clone(),
-            });
+            send_user_message_ui(&tx_ui, &user_text, true);
+            push_user_message(&conversation_history, &user_text);
 
             // Store user message for next agent to respond to
             pending_user_msg = Some(user_text.clone());
@@ -174,10 +147,7 @@ pub fn conversation_thread(
         if turn == 0 {
           let subject = state.debate_subject.lock().unwrap().clone();
           if !subject.is_empty() {
-            let _ = tx_ui.send("line|\n".to_string());
-            let _ = tx_ui.send(format!("line|{}", USER_LABEL));
-            let _ = tx_ui.send(format!("line|{}", subject));
-            let _ = tx_ui.send("line|".to_string());
+            send_user_message_ui(&tx_ui, &subject, false);
           }
         }
 
@@ -205,15 +175,7 @@ pub fn conversation_thread(
 
         if !user_msg.is_empty() {
           let system_prompt = current_agent.system_prompt.replace("\\n", "\n");
-          let mut messages = Vec::new();
-          messages.push(ChatMessage {
-            role: "system".to_string(),
-            content: system_prompt.clone(),
-          });
-          messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: user_msg.clone(),
-          });
+          let messages = create_basic_messages(system_prompt, user_msg.clone());
 
           let my_interrupt = interrupt_counter.load(Ordering::SeqCst);
           let reply = rt
@@ -244,70 +206,19 @@ pub fn conversation_thread(
             let _ = tx_ui.send("line|".to_string());
 
             // Temporarily switch to current agent's voice/tts/language/baseurl settings
-            let original_voice = {
-              let v = state.voice.lock().unwrap();
-              v.clone()
-            };
-            let original_tts = {
-              let v = state.tts.lock().unwrap();
-              v.clone()
-            };
-            let original_language = {
-              let v = state.language.lock().unwrap();
-              v.clone()
-            };
-            let original_baseurl = {
-              let v = state.baseurl.lock().unwrap();
-              v.clone()
-            };
-            {
-              let mut v = state.voice.lock().unwrap();
-              *v = current_agent.voice.clone();
-            }
-            {
-              let mut v = state.tts.lock().unwrap();
-              *v = current_agent.tts.clone();
-            }
-            {
-              let mut v = state.language.lock().unwrap();
-              *v = current_agent.language.clone();
-            }
-            {
-              let mut v = state.baseurl.lock().unwrap();
-              *v = current_agent.baseurl.clone();
-            }
+            let originals = apply_agent_settings(state, current_agent);
 
             // Send to TTS with current agent's voice and wait for each phrase
-            let phrases = split_into_phrases(&reply);
-            for phrase in phrases {
-              // Check for interruption before each phrase
-              if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
-                crate::log::log("debug", "TTS interrupted");
-                break;
-              }
-              let cleaned = crate::util::strip_special_chars(&phrase);
-              let _ = tts_tx.send((cleaned, my_interrupt, current_agent.voice.clone()));
-              // Wait for this phrase to be synthesized before sending next one
-              let _ = tts_done_rx.recv();
-            }
+            process_tts_phrases(
+              &reply,
+              &tts_tx,
+              &tts_done_rx,
+              current_agent.voice.clone(),
+              &interrupt_counter,
+              my_interrupt,
+            );
 
-            // Restore original voice/tts/language/baseurl settings
-            {
-              let mut v = state.voice.lock().unwrap();
-              *v = original_voice;
-            }
-            {
-              let mut v = state.tts.lock().unwrap();
-              *v = original_tts;
-            }
-            {
-              let mut v = state.language.lock().unwrap();
-              *v = original_language;
-            }
-            {
-              let mut v = state.baseurl.lock().unwrap();
-              *v = original_baseurl;
-            }
+            restore_agent_settings(state, originals);
 
             // Check again for interruption before waiting for playback
             if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
@@ -315,15 +226,7 @@ pub fn conversation_thread(
               continue;
             }
 
-            // Wait for playback to finish before next AI request
-            let playback_active = state.playback.playback_active.clone();
-            while playback_active.load(Ordering::SeqCst) {
-              // Check for interruption while waiting
-              if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
-                break;
-              }
-              std::thread::sleep(std::time::Duration::from_millis(10));
-            }
+            wait_for_playback(state, &interrupt_counter, my_interrupt);
           }
 
           // Increment turn only if not interrupted
@@ -341,15 +244,7 @@ pub fn conversation_thread(
       if let Some(user_msg) = pending_user_msg.take() {
         // Build messages for LLM
         let system_prompt = settings.system_prompt.replace("\\n", "\n");
-        let mut messages = Vec::new();
-        messages.push(ChatMessage {
-          role: "system".to_string(),
-          content: system_prompt.clone(),
-        });
-        messages.push(ChatMessage {
-          role: "user".to_string(),
-          content: user_msg.clone(),
-        });
+        let messages = create_basic_messages(system_prompt, user_msg.clone());
 
         let my_interrupt = interrupt_counter.load(Ordering::SeqCst);
         let reply = rt
@@ -372,76 +267,20 @@ pub fn conversation_thread(
           let _ = tx_ui.send(format!("stream|{}", reply.trim()));
           let _ = tx_ui.send("line|".to_string());
 
-          // Switch to agent voice
-          let original_voice = {
-            let v = state.voice.lock().unwrap();
-            v.clone()
-          };
-          let original_tts = {
-            let v = state.tts.lock().unwrap();
-            v.clone()
-          };
-          let original_language = {
-            let v = state.language.lock().unwrap();
-            v.clone()
-          };
-          let original_baseurl = {
-            let v = state.baseurl.lock().unwrap();
-            v.clone()
-          };
-          {
-            let mut v = state.voice.lock().unwrap();
-            *v = settings.voice.clone();
-          }
-          {
-            let mut v = state.tts.lock().unwrap();
-            *v = settings.tts.clone();
-          }
-          {
-            let mut v = state.language.lock().unwrap();
-            *v = settings.language.clone();
-          }
-          {
-            let mut v = state.baseurl.lock().unwrap();
-            *v = settings.baseurl.clone();
-          }
+          let originals = apply_agent_settings(state, &settings);
 
-          let phrases = split_into_phrases(&reply);
-          for phrase in phrases {
-            if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
-              break;
-            }
-            let cleaned = crate::util::strip_special_chars(&phrase);
-            let _ = tts_tx.send((cleaned, my_interrupt, settings.voice.clone()));
-            let _ = tts_done_rx.recv();
-          }
+          process_tts_phrases(
+            &reply,
+            &tts_tx,
+            &tts_done_rx,
+            settings.voice.clone(),
+            &interrupt_counter,
+            my_interrupt,
+          );
 
-          // Restore original settings
-          {
-            let mut v = state.voice.lock().unwrap();
-            *v = original_voice;
-          }
-          {
-            let mut v = state.tts.lock().unwrap();
-            *v = original_tts;
-          }
-          {
-            let mut v = state.language.lock().unwrap();
-            *v = original_language;
-          }
-          {
-            let mut v = state.baseurl.lock().unwrap();
-            *v = original_baseurl;
-          }
+          restore_agent_settings(state, originals);
 
-          // Wait for playback
-          let playback_active = state.playback.playback_active.clone();
-          while playback_active.load(Ordering::SeqCst) {
-            if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
-              break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-          }
+          wait_for_playback(state, &interrupt_counter, my_interrupt);
         }
       }
     }
@@ -458,19 +297,8 @@ pub fn conversation_thread(
         // start rendering for this turn (agent response to user query)
         state.processing_response.store(true, Ordering::Relaxed);
         let pcm_f32: Vec<f32> = utt.data.clone();
-        let mono_f32 = if utt.channels == 1 {
-          pcm_f32.clone()
-        } else {
-          let ch = utt.channels as usize;
-          let frames = pcm_f32.len() / ch;
-          let mut mono = Vec::with_capacity(frames);
-          for f in 0..frames {
-            let start = f * ch;
-            let sum: f32 = pcm_f32[start..start + ch].iter().sum();
-            mono.push(sum / ch as f32);
-          }
-          mono
-        };
+         let mono_f32 = crate::audio::convert_to_mono(&utt);
+
         crate::log::log("debug", &format!("Received audio chunk of len {}", utt.data.len()));
         crate::log::log("debug", &format!("Received mono f32 pcm len {}", pcm_f32.len()));
         crate::log::log("debug", "Transcribing utterance...");
@@ -506,12 +334,9 @@ pub fn conversation_thread(
         }
         // Clear STOP_STREAM flag to ensure user text displays fully
         crate::ui::STOP_STREAM.store(false, Ordering::Relaxed);
-        let _ = tx_ui.send("line|\n".to_string());
-        let _ = tx_ui.send(format!("line|{}", crate::ui::USER_LABEL));
-        let _ = tx_ui.send(format!("line|{}", user_text));
-        let _ = tx_ui.send("line|".to_string());
+         send_user_message_ui(&tx_ui, &user_text, false);
+         push_user_message(&conversation_history, &user_text);
 
-        conversation_history.lock().unwrap().push(ChatMessage{role:"user".to_string(), content:user_text.clone()});
 
         // Check if debate mode is enabled
         let state = GLOBAL_STATE.get().expect("AppState not initialized");
@@ -737,4 +562,102 @@ fn split_into_phrases(text: &str) -> Vec<String> {
     phrases.push(buf.trim().to_string());
   }
   phrases
+}
+
+fn send_user_message_ui(tx_ui: &Sender<String>, text: &str, use_stream: bool) {
+  let _ = tx_ui.send("line|\n".to_string());
+  let _ = tx_ui.send(format!("line|{}", crate::ui::USER_LABEL));
+  let msg = if use_stream {
+    format!("stream|{}", text)
+  } else {
+    format!("line|{}", text)
+  };
+  let _ = tx_ui.send(msg);
+  let _ = tx_ui.send("line|".to_string());
+}
+
+fn push_user_message(history: &ConversationHistory, text: &str) {
+  history.lock().unwrap().push(ChatMessage {
+    role: "user".to_string(),
+    content: text.to_string(),
+  });
+}
+
+fn wait_for_playback(
+  state: &crate::state::AppState,
+  interrupt_counter: &Arc<AtomicU64>,
+  my_interrupt: u64,
+) {
+  let playback_active = state.playback.playback_active.clone();
+  while playback_active.load(Ordering::SeqCst) {
+    if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
+      break;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(10));
+  }
+}
+
+fn process_tts_phrases(
+  reply: &str,
+  tts_tx: &Sender<(String, u64, String)>,
+  tts_done_rx: &Receiver<()>,
+  voice: String,
+  interrupt_counter: &Arc<AtomicU64>,
+  my_interrupt: u64,
+) {
+  let phrases = split_into_phrases(reply);
+  for phrase in phrases {
+    if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
+      break;
+    }
+    let cleaned = crate::util::strip_special_chars(&phrase);
+    let _ = tts_tx.send((cleaned, my_interrupt, voice.clone()));
+    let _ = tts_done_rx.recv();
+  }
+}
+
+fn create_basic_messages(system_prompt: String, user_msg: String) -> Vec<ChatMessage> {
+  vec![
+    ChatMessage {
+      role: "system".to_string(),
+      content: system_prompt,
+    },
+    ChatMessage {
+      role: "user".to_string(),
+      content: user_msg,
+    },
+  ]
+}
+
+fn apply_agent_settings(
+  state: &crate::state::AppState,
+  agent: &crate::config::AgentSettings,
+) -> (String, String, String, String) {
+  let original_voice = state.voice.lock().unwrap().clone();
+  let original_tts = state.tts.lock().unwrap().clone();
+  let original_language = state.language.lock().unwrap().clone();
+  let original_baseurl = state.baseurl.lock().unwrap().clone();
+
+  *state.voice.lock().unwrap() = agent.voice.clone();
+  *state.tts.lock().unwrap() = agent.tts.clone();
+  *state.language.lock().unwrap() = agent.language.clone();
+  *state.baseurl.lock().unwrap() = agent.baseurl.clone();
+
+  (
+    original_voice,
+    original_tts,
+    original_language,
+    original_baseurl,
+  )
+}
+
+fn restore_agent_settings(
+  state: &crate::state::AppState,
+  originals: (String, String, String, String),
+) {
+  let (voice, tts, language, baseurl) = originals;
+  *state.voice.lock().unwrap() = voice;
+  *state.tts.lock().unwrap() = tts;
+  *state.language.lock().unwrap() = language;
+  *state.baseurl.lock().unwrap() = baseurl;
 }

@@ -112,7 +112,7 @@ pub struct Args {
   #[arg(long)]
   pub ptt: Option<bool>,
 
-  #[arg(long, num_args=3.., value_name = "AGENT1 AGENT2 SUBJECT")]
+  #[arg(long, num_args=2.., value_name = "AGENT1 AGENT2 SUBJECT")]
   pub debate: Option<Vec<String>>,
 
   #[arg(short = 'r', long = "read-file", value_name = "FILENAME")]
