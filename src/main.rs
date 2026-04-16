@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let agents = match config::load_settings(&settings_path, &args) {
       Ok(v) => v,
       Err(e) => {
-        eprintln!("❌ Failed to load settings: {}", e);
+        crate::log::log("error", &format!("Failed to load settings: {}", e));
         process::exit(1);
       }
     };
@@ -96,14 +96,17 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       Some(agent_name) => match agents.iter().find(|a| a.name == *agent_name).cloned() {
         Some(a) => a,
         None => {
-          eprintln!(
-            "❌ Agent '{}' not found. Available agents: {}",
-            agent_name,
-            agents
-              .iter()
-              .map(|a| a.name.as_str())
-              .collect::<Vec<&str>>()
-              .join(", ")
+          crate::log::log(
+            "error",
+            &format!(
+              "Agent '{}' not found. Available agents: {}",
+              agent_name,
+              agents
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<&str>>()
+                .join(", ")
+            ),
           );
           process::exit(1);
         }
@@ -132,7 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Setup audio output for TTS
     let host = cpal::default_host();
     let (out_dev, _out_stream) = audio::pick_output_stream(&host).unwrap_or_else(|msg| {
-      eprintln!("❌ {}", msg);
+      crate::log::log("error", &format!("{}", msg));
       process::exit(1)
     });
 
@@ -798,7 +801,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // Enable debate mode if requested
   if let Some(ref debate_args) = args.debate {
     if debate_args.len() < 2 {
-      eprintln!("❌ --debate requires at least two agent names");
+      crate::log::log("error", "--debate requires at least two agent names");
       process::exit(1);
     }
     let agent1_name = &debate_args[0];
@@ -808,7 +811,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     } else if let Some(ref subj) = initial_prompt {
       subj.clone()
     } else {
-      eprintln!("❌ --debate requires a subject when no prompt is provided");
+      crate::log::log(
+        "error",
+        "--debate requires a subject when no prompt is provided",
+      );
       process::exit(1);
     };
     let agent1 = agents.iter().find(|a| a.name == *agent1_name).cloned();
@@ -816,15 +822,18 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (agent1, agent2) = match (agent1, agent2) {
       (Some(a1), Some(a2)) => (a1, a2),
       _ => {
-        eprintln!(
-          "❌ Agents '{}' or '{}' not found. Available agents: {}",
-          agent1_name,
-          agent2_name,
-          agents
-            .iter()
-            .map(|a| a.name.as_str())
-            .collect::<Vec<&str>>()
-            .join(", ")
+        crate::log::log(
+          "error",
+          &format!(
+            "Agents '{}' or '{}' not found. Available agents: {}",
+            agent1_name,
+            agent2_name,
+            agents
+              .iter()
+              .map(|a| a.name.as_str())
+              .collect::<Vec<&str>>()
+              .join(", ")
+          ),
         );
         process::exit(1);
       }

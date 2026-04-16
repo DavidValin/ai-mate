@@ -23,7 +23,7 @@ pub fn read_file(path: &str) -> String {
     io::stdin()
       .read_to_end(&mut stdin_bytes)
       .unwrap_or_else(|e| {
-        eprintln!("❌ Failed to read stdin: {}", e);
+        crate::log::log("error", &format!("Failed to read stdin: {}", e));
         process::exit(1);
       });
     match std::str::from_utf8(&stdin_bytes) {
@@ -58,7 +58,10 @@ pub fn read_file(path: &str) -> String {
           }
         }
         Err(e) => {
-          eprintln!("❌ Failed to read file '{}' with error: {}", path, e);
+          crate::log::log(
+            "error",
+            &format!("Failed to read file '{}' with error: {}", path, e),
+          );
           process::exit(1);
         }
       },
