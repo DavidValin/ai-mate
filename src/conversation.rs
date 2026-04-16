@@ -4,6 +4,7 @@
 
 use crate::START_INSTANT;
 use crate::state::GLOBAL_STATE;
+use crate::ui::USER_LABEL;
 use crossbeam_channel::{Receiver, Sender, select};
 use std::cell::Cell;
 use std::sync::OnceLock;
@@ -12,8 +13,6 @@ use std::sync::{
   atomic::{AtomicU64, Ordering},
 };
 use tokio::runtime::Builder as TokioBuilder;
-use crate::ui::USER_LABEL;
-
 
 static WHISPER_CTX: OnceLock<whisper_rs::WhisperContext> = OnceLock::new();
 

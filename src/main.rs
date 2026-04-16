@@ -1,3 +1,4 @@
+use crate::ui::USER_LABEL;
 use crate::util::get_user_home_path;
 use clap::Parser;
 use cpal::traits::DeviceTrait;
@@ -9,7 +10,6 @@ use std::sync::{Arc, OnceLock, atomic::Ordering};
 use std::thread::{self, Builder as ThreadBuilder};
 use std::time::Duration;
 use std::time::Instant;
-use crate::ui::USER_LABEL;
 
 mod assets;
 mod audio;
@@ -678,7 +678,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // ---------------------------------------------------
   // Thread: Playback
   // ---------------------------------------------------
-  
+
   let rx_play_for_playback = rx_play.clone();
   let playback_active_for_play = playback_active.clone();
   let gate_until_ms_for_play = gate_until_ms.clone();
@@ -760,7 +760,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let tts_done_rx_for_conv = tts_done_rx.clone();
 
   let init_prompt_for_conv = initial_prompt.clone();
-let conv_handle = thread::spawn(move || {
+  let conv_handle = thread::spawn(move || {
     conversation::conversation_thread(
       rx_utt_for_conv,
       stop_all_rx_for_conv.clone(),
@@ -806,12 +806,12 @@ let conv_handle = thread::spawn(move || {
     let agent1_name = &debate_args[0];
     let agent2_name = &debate_args[1];
     let subject = if debate_args.len() >= 3 {
-        debate_args[2..].join(" ")
+      debate_args[2..].join(" ")
     } else if let Some(ref subj) = initial_prompt {
-        subj.clone()
+      subj.clone()
     } else {
-        eprintln!("❌ --debate requires a subject when no prompt is provided");
-        process::exit(1);
+      eprintln!("❌ --debate requires a subject when no prompt is provided");
+      process::exit(1);
     };
     let agent1 = agents.iter().find(|a| a.name == *agent1_name).cloned();
     let agent2 = agents.iter().find(|a| a.name == *agent2_name).cloned();
@@ -823,10 +823,10 @@ let conv_handle = thread::spawn(move || {
           agent1_name,
           agent2_name,
           agents
-              .iter()
-              .map(|a| a.name.as_str())
-              .collect::<Vec<&str>>()
-              .join(", ")
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<&str>>()
+            .join(", ")
         );
         process::exit(1);
       }
@@ -848,7 +848,6 @@ let conv_handle = thread::spawn(move || {
   let _ = conv_handle.join().unwrap();
   let _ = ui_handle.join().unwrap();
   let _ = tts_handle.join().unwrap();
-
 
   drop(stop_play_tx);
   // drop(tx_tts);
