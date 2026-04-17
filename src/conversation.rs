@@ -49,10 +49,70 @@ pub fn conversation_thread(
   tts_tx: Sender<(String, u64, String)>,
   tts_done_rx: Receiver<()>,
   initial_prompt: Option<String>,
+  quiet: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ctx = init_whisper_context(&model_path);
   crate::log::log("info", &format!("LLM model: {}", settings.model));
+  
+  //  –––––––––––––––––––––––––––––––––––––
+  //   single run mode
+  //  –––––––––––––––––––––––––––––––––––––
 
+  if quiet {
+    crate::log::log("info", "Running in quiet mode");
+    
+    let rt = TokioBuilder::new_current_thread()
+      .enable_all()
+      .build()
+      .unwrap();
+      
+    if let Some(prompt) = initial_prompt {
+      // Show user message in UI
+      send_user_message_ui(&tx_ui, &prompt, false);
+      push_user_message(&conversation_history, &prompt);
+      
+      let system_prompt = settings.system_prompt.replace("\\n", "\n");
+      let messages = create_basic_messages(system_prompt, prompt);
+      
+      let my_interrupt = interrupt_counter.load(Ordering::SeqCst);
+      let reply = rt
+        .block_on(get_response(messages, &settings))
+        .unwrap_or_else(|e| {
+          crate::log::log("error", &format!("Error getting response in quiet mode: {}", e));
+          String::new()
+        });
+        
+      if !reply.is_empty() {
+        conversation_history.lock().unwrap().push(ChatMessage {
+          role: "assistant".to_string(),
+          content: reply.clone(),
+        });
+        
+        // Display in UI
+        let _ = tx_ui.send("line| ".to_string());
+        let label = format!("\x1b[48;5;22;37m{}:\x1b[0m", settings.name);
+        let _ = tx_ui.send(format!("line|{}", label));
+        let _ = tx_ui.send(format!("stream|{}", reply.trim()));
+        let _ = tx_ui.send("line|".to_string());
+        
+        process_tts_phrases(
+          &reply,
+          &tts_tx,
+          &tts_done_rx,
+          settings.voice.clone(),
+          &interrupt_counter,
+          my_interrupt,
+        );
+        
+        let state = GLOBAL_STATE.get().expect("AppState not initialized");
+        wait_for_playback(state, &interrupt_counter, my_interrupt);
+      }
+    }
+    
+    crate::log::log("info", "Quiet mode playback finished. Exiting.");
+    std::process::exit(0);
+  }
+  
   // Runtime to use for async debate responses
   let rt = TokioBuilder::new_current_thread()
     .enable_all()
@@ -64,6 +124,9 @@ pub fn conversation_thread(
   let mut debate_interrupted = false;
   let mut pending_user_msg: Option<String> = initial_prompt;
 
+  //  –––––––––––––––––––––––––––––––––––––
+  //   loop
+  //  –––––––––––––––––––––––––––––––––––––
   loop {
     // Check if we should run debate turn
     let state = GLOBAL_STATE.get().expect("AppState not initialized");
@@ -75,6 +138,9 @@ pub fn conversation_thread(
         pending_user_msg = Some(prompt.clone());
       }
     }
+    //  –––––––––––––––––––––––––––––––––––––
+    //   debate mode
+    //  –––––––––––––––––––––––––––––––––––––
     if state.debate_enabled.load(Ordering::SeqCst) {
       let debate_agents = state.debate_agents.lock().unwrap().clone();
       if debate_agents.len() >= 2 {
@@ -239,7 +305,9 @@ pub fn conversation_thread(
       }
     }
 
-    // Normal conversation mode (no debate)
+    //  –––––––––––––––––––––––––––––––––––––
+    //   conversation mode
+    //  –––––––––––––––––––––––––––––––––––––
     if !state.debate_enabled.load(Ordering::SeqCst) {
       if let Some(user_msg) = pending_user_msg.take() {
         // Build messages for LLM
@@ -288,6 +356,9 @@ pub fn conversation_thread(
     select! {
       recv(stop_all_rx) -> _ => break,
       recv(rx_utt) -> msg => {
+        //  –––––––––––––––––––––––––––––––––––––
+        //   user audio input handler
+        //  –––––––––––––––––––––––––––––––––––––
         let Ok(utt) = msg else { break };
         // Drain any pending stop signals from previous turn
         while stop_all_rx.try_recv().is_ok() {}

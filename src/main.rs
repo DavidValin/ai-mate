@@ -129,6 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let app_state = Arc::new(state::AppState::with_agent(
       settings.clone(),
       agents.clone(),
+      args.quiet,
     ));
     state::GLOBAL_STATE.set(app_state.clone()).unwrap();
 
@@ -187,6 +188,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       agent_speaking: Arc::new(std::sync::atomic::AtomicBool::new(false)),
       peak: Arc::new(std::sync::Mutex::new(0.0)),
       spinner_index: 0,
+      quiet: args.quiet,
     };
 
     let _play_handle = thread::spawn({
@@ -513,8 +515,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let state: Arc<state::AppState> = Arc::new(state::AppState::with_agent(
     settings.clone(),
     agents.clone(),
+    args.quiet,
   ));
-
+  
   state::GLOBAL_STATE.set(state.clone()).unwrap();
 
   // If initial prompt provided, process it before starting conversation thread
@@ -775,6 +778,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       tx_tts_for_conv.clone(),
       tts_done_rx_for_conv.clone(),
       init_prompt_for_conv,
+      args.quiet,
     )
   });
 

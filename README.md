@@ -205,17 +205,17 @@ echo "Lets discuss the permissions of this files: \n\n $(ls -la)" | ai-mate --de
 
 Get a single response from prompt
 ```
-ai-mate -p "How old is the earth?"
+ai-mate -q -p "Explain me the Zettelkasten Method"
 ```
 
 Get a single response from prompt from file
 ```
-ai-mate -i myprompt.txt
+ai-mate -q -i myprompt.txt
 ```
 
 Get a single response from prompt from stdin
 ```
-echo "Is $(date) a national holiday day in Spain?" | ai-mate -i -
+echo "Is $(date) a national holiday day in Spain?" | ai-mate -q -i -
 ```
 
 ####  File to speech
