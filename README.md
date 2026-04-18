@@ -48,6 +48,7 @@ https://github.com/user-attachments/assets/e612feaa-8ab0-4761-9c67-53ec7d40cab7
 - 📌 Voice speed change: `change the agent voice speed by pressing <ARROW_UP> / <ARROW_DOWN> (applicable to next response)`
 - 📌 Voice read a txt file: `ai-mate -r myfile.txt`
 - 📌 Voice read text from stdin phrase by phrase: `echo "Hello. How are you?" | ai-mate -r -`
+- 📌 Save conversation in text files: `ai-mate -s`
 - 📌 Integrated `whisper`
 - 📌 Integrated `kokoro TTS` system
 - 📌 Interface with `OpenTTS` system
@@ -149,6 +150,7 @@ echo "How to fly without wings?" | ai-mate --agent "main agent" -i -
 
 * You can switch agents in realtime by pressing `ARROW_LEFT` / `ARROW_RIGHT` keyword arrows (you need at least 2 agents defined in `~/ai-mate/settings`).
 * You can change the voice speed by pressing `ARROW_UP` / `ARROW_DOWN`
+* Be able to save the conversation in a text file by adding `-s` option. It will save it in `~/.ai-mate/conversations` folder
 
 #### Debate mode
 
@@ -170,6 +172,7 @@ echo "Lets discuss the permissions of this files: \n\n $(ls -la)" | ai-mate --de
 ```
 
 * You can also start/stop a debate from conversation mode by pressing `Control+D` and picking the debate agents.
+* Be able to save the conversation in a text file by adding `-s` option. It will save it in `~/.ai-mate/conversations` folder
 
 #### Single run
 
@@ -189,6 +192,7 @@ echo "Is $(date) a national holiday day in Spain?" | ai-mate -q -i -
 ```
 
 ####  File to speech
+
 Read a text file or stdin text phrase by phrase. Ensure the agent you choose has correct language and voice for your text.
 In this mode, only the next agent settings are used: "tts", "voice" and "language".
 
