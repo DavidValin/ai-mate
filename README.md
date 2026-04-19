@@ -200,6 +200,12 @@ Get a single response from prompt from stdin
 echo "Is $(date) a national holiday day in Spain?" | ai-mate -q -i -
 ```
 
+Get a single response and save it as audio file and text file
+```
+echo "Can you find any suspicious processes in the next list? If so, why?\n\n $(ps aux | head -20)" | ai-mate -q -i - -s
+```
+
+
 ####  File to speech
 
 Read a text file or stdin text phrase by phrase. Ensure the agent you choose has correct language and voice for your text.
