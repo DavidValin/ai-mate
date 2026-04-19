@@ -3,9 +3,11 @@
 // ------------------------------------------------------------------
 
 use crate::START_INSTANT;
+use crate::playback::set_wav_tx;
 use crate::state::GLOBAL_STATE;
 use chrono::Local;
 use crossbeam_channel::{Receiver, Sender, select};
+use hound;
 use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -58,6 +60,11 @@ pub fn conversation_thread(
   save: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let ctx = init_whisper_context(&model_path);
+
+  // WAV writer thread: activated when -s option is used
+  // WAV writer will be started lazily when the first save path is created.
+  let mut wav_tx_opt: Option<crossbeam_channel::Sender<crate::audio::AudioChunk>> = None;
+
   crate::log::log("info", &format!("LLM model: {}", settings.model));
 
   let perform_save = |history: &ConversationHistory| {
@@ -177,6 +184,41 @@ pub fn conversation_thread(
       *state.start_date.lock().unwrap() = date_str;
 
       // Initial save with banner
+      // Start WAV writer thread if saving is enabled
+      if save {
+        if let Some(txt_path) = state.save_path.lock().unwrap().clone() {
+          let wav_path = txt_path.with_extension("wav");
+          let (wav_tx, wav_rx) = crossbeam_channel::unbounded::<crate::audio::AudioChunk>();
+          set_wav_tx(wav_tx.clone());
+          std::thread::spawn(move || {
+            let mut writer: Option<hound::WavWriter<std::io::BufWriter<std::fs::File>>> = None;
+            while let Ok(chunk) = wav_rx.recv() {
+              if writer.is_none() {
+                let spec = hound::WavSpec {
+                  channels: chunk.channels,
+                  sample_rate: chunk.sample_rate,
+                  bits_per_sample: 16,
+                  sample_format: hound::SampleFormat::Int,
+                };
+                writer = Some(hound::WavWriter::create(&wav_path, spec).unwrap());
+              }
+              let samples = crate::audio::f32_to_i16(&chunk.data);
+              for s in samples {
+                writer.as_mut().unwrap().write_sample(s).unwrap();
+              }
+              let silence_samples =
+                (chunk.sample_rate * 500 / 1000) as usize * chunk.channels as usize;
+              for _ in 0..silence_samples {
+                writer.as_mut().unwrap().write_sample(0_i16).unwrap();
+              }
+              writer.as_mut().unwrap().flush().unwrap();
+            }
+          });
+          // Store the tx for later use
+          wav_tx_opt = Some(wav_tx);
+        }
+      }
+
       perform_save(&conversation_history);
     }
 
@@ -418,6 +460,9 @@ pub fn conversation_thread(
         //   user audio input handler
         //  –––––––––––––––––––––––––––––––––––––
         let Ok(utt) = msg else { break };
+        if let Some(ref wav_tx) = wav_tx_opt {
+          wav_tx.send(utt.clone()).unwrap_or(());
+        }
         // Drain any pending stop signals from previous turn
         while stop_all_rx.try_recv().is_ok() {}
 
