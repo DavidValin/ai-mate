@@ -119,8 +119,9 @@ pub fn conversation_thread(
       let messages = create_basic_messages(system_prompt, prompt);
 
       let my_interrupt = interrupt_counter.load(Ordering::SeqCst);
+      let messages_clone = messages.clone();
       let reply = rt
-        .block_on(get_response(messages, &settings))
+        .block_on(get_response(messages_clone, &settings))
         .unwrap_or_else(|e| {
           crate::log::log(
             "error",
