@@ -238,6 +238,13 @@ pub fn conversation_thread(
           state.conversation_paused.store(false, Ordering::Relaxed);
           state.processing_response.store(true, Ordering::Relaxed);
 
+          // Apply settings of the agent that will respond next
+          let debate_agents = state.debate_agents.lock().unwrap().clone();
+          let turn = state.debate_turn.load(Ordering::SeqCst) as usize;
+          let agent_count = debate_agents.len();
+          let next_agent = &debate_agents[turn % agent_count];
+          let _ = apply_agent_settings(state, next_agent);
+
           let _pcm_f32: Vec<f32> = utt.data.clone();
           let mono_f32 = crate::audio::convert_to_mono(&utt);
 
@@ -308,6 +315,8 @@ pub fn conversation_thread(
 
         if !user_msg.is_empty() {
           let system_prompt = current_agent.system_prompt.replace("\\n", "\n");
+          // Set recording_paused according to current agent's ptt
+          state.recording_paused.store(current_agent.ptt, Ordering::Relaxed);
           let messages = create_basic_messages(system_prompt, user_msg.clone());
 
           let my_interrupt = interrupt_counter.load(Ordering::SeqCst);
@@ -342,7 +351,7 @@ pub fn conversation_thread(
             let _ = tx_ui.send("line|".to_string());
 
             // Temporarily switch to current agent's voice/tts/language/baseurl settings
-            let originals = apply_agent_settings(state, current_agent);
+            let _ = apply_agent_settings(state, current_agent);
 
             // Send to TTS with current agent's voice and wait for each phrase
             process_tts_phrases(
@@ -353,8 +362,6 @@ pub fn conversation_thread(
               &interrupt_counter,
               my_interrupt,
             );
-
-            restore_agent_settings(state, originals);
 
             // Check again for interruption before waiting for playback
             if interrupt_counter.load(Ordering::SeqCst) != my_interrupt {
@@ -496,8 +503,6 @@ pub fn conversation_thread(
             let mut subject = state.debate_subject.lock().unwrap();
             *subject = user_text.clone();
           }
-          // Reset turn counter so debate continues
-          state.debate_turn.store(0, Ordering::SeqCst);
           // Signal playback is done for user input
           state.playback.playback_active.store(false, Ordering::Relaxed);
           continue;
@@ -880,34 +885,83 @@ fn create_basic_messages(system_prompt: String, user_msg: String) -> Vec<ChatMes
 fn apply_agent_settings(
   state: &crate::state::AppState,
   agent: &crate::config::AgentSettings,
-) -> (String, String, String, String) {
+) -> (
+  String,
+  String,
+  String,
+  String,
+  String,
+  String,
+  String,
+  bool,
+  u32,
+) {
+  // Store original settings
   let original_voice = state.voice.lock().unwrap().clone();
   let original_tts = state.tts.lock().unwrap().clone();
   let original_language = state.language.lock().unwrap().clone();
   let original_baseurl = state.baseurl.lock().unwrap().clone();
+  let original_provider = state.provider.lock().unwrap().clone();
+  let original_model = state.model.lock().unwrap().clone();
+  let original_system_prompt = state.system_prompt.lock().unwrap().clone();
+  let original_ptt = state.ptt.load(std::sync::atomic::Ordering::Relaxed);
+  let original_speed = state.speed.load(std::sync::atomic::Ordering::Relaxed);
 
+  // Apply new agent settings
   *state.voice.lock().unwrap() = agent.voice.clone();
   *state.tts.lock().unwrap() = agent.tts.clone();
   *state.language.lock().unwrap() = agent.language.clone();
   *state.baseurl.lock().unwrap() = agent.baseurl.clone();
+  *state.provider.lock().unwrap() = agent.provider.clone();
+  *state.model.lock().unwrap() = agent.model.clone();
+  *state.system_prompt.lock().unwrap() = agent.system_prompt.clone();
+  state
+    .ptt
+    .store(agent.ptt, std::sync::atomic::Ordering::Relaxed);
+  state.speed.store(
+    (agent.voice_speed * 10.0) as u32,
+    std::sync::atomic::Ordering::Relaxed,
+  );
 
   (
     original_voice,
     original_tts,
     original_language,
     original_baseurl,
+    original_provider,
+    original_model,
+    original_system_prompt,
+    original_ptt,
+    original_speed,
   )
 }
 
 fn restore_agent_settings(
   state: &crate::state::AppState,
-  originals: (String, String, String, String),
+  originals: (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    bool,
+    u32,
+  ),
 ) {
-  let (voice, tts, language, baseurl) = originals;
+  let (voice, tts, language, baseurl, provider, model, system_prompt, ptt, speed) = originals;
   *state.voice.lock().unwrap() = voice;
   *state.tts.lock().unwrap() = tts;
   *state.language.lock().unwrap() = language;
   *state.baseurl.lock().unwrap() = baseurl;
+  *state.provider.lock().unwrap() = provider;
+  *state.model.lock().unwrap() = model;
+  *state.system_prompt.lock().unwrap() = system_prompt;
+  state.ptt.store(ptt, std::sync::atomic::Ordering::Relaxed);
+  state
+    .speed
+    .store(speed, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub struct SaveMetadata {
