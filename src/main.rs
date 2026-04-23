@@ -36,6 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   assets::ensure_piper_espeak_env();
   // make sure the user has the whisper + tts models unpacked
   assets::ensure_assets_env();
+  assets::ensure_supersonic2_assets();
 
   // ---------------------------------------------------
   // setup thread communication channels
@@ -133,10 +134,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Read the filename or stdin
     let content = util::read_file(filename);
 
-    // Start kokoro engine if needed
-    if settings.tts == "kokoro" {
-      tts::start_kokoro_engine()?;
-    }
+    tts::start_supersonic_engine()?;
+    tts::start_kokoro_engine()?;
 
     // Initialize global state for TTS thread
     let app_state = Arc::new(state::AppState::with_agent(
@@ -630,10 +629,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   log::log("info", &format!("Language: {}", settings.language));
   log::log("info", &format!("TTS voice: {}", settings.voice));
   log::log("info", &format!("LLM provider: {}", settings.provider));
-
-  if settings.tts == "kokoro" {
-    tts::start_kokoro_engine()?;
-  }
 
   if settings.provider == "ollama" {
     log::log("info", &format!("ollama base url: {}", settings.baseurl));

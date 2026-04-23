@@ -346,7 +346,9 @@ pub fn keyboard_thread(
             *state.model.lock().unwrap() = new_agent.model.clone();
             *state.system_prompt.lock().unwrap() = new_agent.system_prompt.clone();
             state.ptt.store(new_agent.ptt, Ordering::Relaxed);
-            state.speed.store((new_agent.voice_speed * 10.0) as u32, Ordering::Relaxed);
+            state
+              .speed
+              .store((new_agent.voice_speed * 10.0) as u32, Ordering::Relaxed);
             if state.ptt.load(Ordering::Relaxed) {
               recording_paused.store(true, Ordering::Relaxed);
             } else {
@@ -355,9 +357,11 @@ pub fn keyboard_thread(
             // Reset conversation history when changing agents
             state.reset_conversation();
             let _ = tx_ui.send(format!(
-              "line|\n\x1b[32m🤖 Agent switched to '\x1b[37m{}\x1b[0m\x1b[32m' language: \x1b[37m{}\x1b[0m",
+              "line|\n\x1b[32m🤖 Agent switched to '\x1b[37m{}\x1b[0m\x1b[32m' language: \x1b[37m{}\x1b[0m   voice: \x1b[37m{}\x1b[0m    tts: \x1b[37m{}\x1b[0m",
               new_agent.name,
-              new_agent.language
+              new_agent.language,
+              new_agent.voice,
+              new_agent.tts
             ));
           }
 
@@ -381,7 +385,9 @@ pub fn keyboard_thread(
             *state.model.lock().unwrap() = new_agent.model.clone();
             *state.system_prompt.lock().unwrap() = new_agent.system_prompt.clone();
             state.ptt.store(new_agent.ptt, Ordering::Relaxed);
-            state.speed.store((new_agent.voice_speed * 10.0) as u32, Ordering::Relaxed);
+            state
+              .speed
+              .store((new_agent.voice_speed * 10.0) as u32, Ordering::Relaxed);
             if state.ptt.load(Ordering::Relaxed) {
               recording_paused.store(true, Ordering::Relaxed);
             } else {
@@ -390,9 +396,11 @@ pub fn keyboard_thread(
             // Reset conversation history when changing agents
             state.reset_conversation();
             let _ = tx_ui.send(format!(
-              "line|\n\x1b[32m🤖 Agent switched to '\x1b[37m{}\x1b[0m\x1b[32m' language: \x1b[37m{}\x1b[0m",
+              "line|\n\x1b[32m🤖 Agent switched to '\x1b[37m{}\x1b[0m\x1b[32m' language: \x1b[37m{}\x1b[0m   voice: \x1b[37m{}\x1b[0m    tts: \x1b[37m{}\x1b[0m",
               new_agent.name,
-              new_agent.language
+              new_agent.language,
+              new_agent.voice,
+              new_agent.tts
             ));
           }
           _ => {
