@@ -2,7 +2,7 @@
 //  UI
 // ------------------------------------------------------------------
 
-use crate::state::{GLOBAL_STATE, get_speed, get_voice};
+use crate::state::{GLOBAL_STATE, get_speed};
 use crate::util::get_flag;
 use crossbeam_channel::Receiver;
 use crossterm::{

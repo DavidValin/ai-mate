@@ -4,6 +4,8 @@ Powerful terminal-based voice ai toolkit with many realistic voices, extremely l
 
 The program self contains (1.2GB) all tts models and voices and necessary files to recognize speech and speak with voice with no external intallations ensuring maximum portability.
 
+⚠️ Currently you can use only ONE TTS system at the time. The default is (see `~/.vtmate/settings` file)
+
 ### Video demonstration
 <details>
 <summary>(🇬🇧 English) Conversation video demo</summary>

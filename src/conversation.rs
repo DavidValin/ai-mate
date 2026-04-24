@@ -533,6 +533,8 @@ pub fn conversation_thread(
 
         // called on every chunk received from llm
         let voice_for_tts = state.voice.lock().unwrap().clone();
+        // Clone for use inside closure
+        let voice_for_tts_clone = voice_for_tts.clone();
         // reply accumulator for single ChatMessage
         let reply_accum = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let reply_accum_cloned = reply_accum.clone();
@@ -553,24 +555,30 @@ pub fn conversation_thread(
             got_any_token = true;
             ui_thinking_for_closure.store(false, Ordering::Relaxed);
           }
-           if let Some(phrase) = speaker_arc_cloned_for_closure.lock().unwrap().push_text(piece) {
-             if !first_phrase_logged {
-               let elapsed_ms = crate::util::now_ms(&START_INSTANT) - speech_end_ms;
-               crate::log::log("info", &format!("Time from speech end to first phrase playback: {:.2?}", elapsed_ms));
-               first_phrase_logged = true;
-             }
+          if let Some(phrase) = speaker_arc_cloned_for_closure.lock().unwrap().push_text(piece) {
+            if !first_phrase_logged {
+              let elapsed_ms = crate::util::now_ms(&START_INSTANT) - speech_end_ms;
+              crate::log::log("info", &format!("Time from speech end to first phrase playback: {:.2?}", elapsed_ms));
+              first_phrase_logged = true;
+            }
              // accumulate reply for single ChatMessage
-             if let Ok(mut acc) = reply_accum_cloned.lock() {
-                 acc.push_str(&phrase);
-             }
-             // send the complete phrase to tts
-             let cleaned = crate::util::strip_special_chars(&phrase);
-             crate::log::log("info", &format!("Sending phrase to TTS: '{}' (original: '{}'), interrupt={}", cleaned, phrase, my_interrupt));
-             let _ = tts_tx_cloned_for_closure.send((cleaned, my_interrupt, voice_for_tts.clone()));
-           }
+            if let Ok(mut acc) = reply_accum_cloned.lock() {
+              acc.push_str(&phrase);
+              acc.push(' ');
+            }
+            // send the complete phrase to tts
+            let mut cleaned = crate::util::strip_special_chars(&phrase);
+            cleaned.push(' ');
+            crate::log::log("info", &format!("Sending phrase to TTS: '{}' (original: '{}'), interrupt={}", cleaned, phrase, my_interrupt));
+            let _ = tts_tx_cloned_for_closure.send((cleaned, my_interrupt, voice_for_tts_clone.clone()));
+          }
 
           // send raw piece immediately
-          let _ = tx_ui_cloned_for_closure.send(format!("stream|{}", piece));
+          let mut ui_piece = piece.to_string();
+          if ui_piece.ends_with('.') || ui_piece.ends_with('!') || ui_piece.ends_with('?') {
+            ui_piece.push(' ');
+          }
+          let _ = tx_ui_cloned_for_closure.send(format!("stream|{}", ui_piece));
         };
 
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -633,7 +641,24 @@ pub fn conversation_thread(
           let _join_result = handle.join();
         }
         ui_thinking_cloned_for_closure.store(false, Ordering::Relaxed);
-        // After the LLM thread finishes, push the accumulated reply as a single message
+        // Prepare clones for post-closure use
+        let speaker_arc_for_after = speaker_arc.clone();
+        let reply_accum_for_after = reply_accum.clone();
+        let tts_tx_for_after = tts_tx.clone();
+        let voice_for_tts_for_after = voice_for_tts.clone();
+
+        // Flush any remaining phrase from the speaker when stream ends
+        if let Some(last_phrase) = speaker_arc_for_after.lock().unwrap().flush() {
+          // accumulate reply
+          if let Ok(mut acc) = reply_accum_for_after.lock() {
+            acc.push_str(&last_phrase);
+            acc.push(' ');
+          }
+          // send to TTS
+          let mut cleaned = crate::util::strip_special_chars(&last_phrase);
+          cleaned.push(' ');
+          let _ = tts_tx_for_after.send((cleaned, my_interrupt, voice_for_tts_for_after.clone()));
+        }
         {
           // Retrieve and clear the accumulated reply
           let acc_clone = {
@@ -647,8 +672,6 @@ pub fn conversation_thread(
             perform_save(&conversation_history);
           }
         }
-
-
       }
     }
   }
