@@ -213,7 +213,6 @@ echo "How to fly without wings?" | vtmate -i -
 * Be able to save the conversation in a wav and text file by adding `-s` option. It will save it in `~/.vtmate/conversations` folder
 * For quick reference get the printable [Quicksheet (PDF)](https://raw.githubusercontent.com/DavidValin/vtmate/refs/heads/main/docs/en/quicksheet.pdf)
 
-
 ### Debate mode
 
 ![debate mode](https://github.com/DavidValin/vtmate/raw/main/docs/en/diagrams/debate-mode.png)
@@ -244,6 +243,7 @@ vtmate --debate "Unix administrator" "Security Expert" -i prompt.txt --ptt true
 * Press double `u` to undo last response
 * You can also start/stop a debate from conversation mode by pressing `Control+D` and picking the debate agents.
 * Be able to save the conversation in a wav and text file by adding `-s` option. It will save it in `~/.vtmate/conversations` folder
+* [Here is an example](https://gist.github.com/DavidValin/58cf130c4f7b2ea9a6a033bf37bc1cda) on how to create automated audio debates from youtube videos using vtmate in combination with other tools
 * For quick reference get the printable [Quicksheet (PDF)](https://raw.githubusercontent.com/DavidValin/vtmate/refs/heads/main/docs/en/quicksheet.pdf)
 
 
